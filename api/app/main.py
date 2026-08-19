@@ -33,6 +33,92 @@ class TokenRefreshRequest(BaseModel):
     refresh_token: str
 
 
+class GoalCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=100)
+    target_amount: float = Field(gt=0)
+    target_currency: str = Field(min_length=3, max_length=3)
+    target_date: str
+    status: str = Field(default="active")
+    priority: str = Field(default="medium")
+
+
+class InvestmentCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    asset_class: str = Field(min_length=1, max_length=100)
+    currency: str = Field(min_length=3, max_length=3)
+    amount_invested: float = Field(gt=0)
+    units: float = Field(gt=0)
+    unit_value: float = Field(gt=0)
+    valuation_source: str = Field(min_length=1, max_length=100)
+    valuation_timestamp: str
+
+
+class TransactionRecord(BaseModel):
+    date: str
+    description: str = Field(min_length=1, max_length=200)
+    amount: float = Field(gt=0)
+    type: str
+
+
+class TransactionImportRequest(BaseModel):
+    source_name: str = Field(min_length=1, max_length=200)
+    records: list[TransactionRecord]
+
+
+class InsurancePolicyCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    policy_type: Literal["health", "life", "disability", "critical_illness", "auto", "home", "liability"]
+    premium_amount: float = Field(gt=0)
+    coverage_amount: float = Field(gt=0)
+    start_date: str
+    end_date: str
+
+    @property
+    def dates_valid(self) -> bool:
+        try:
+            start = datetime.fromisoformat(self.start_date)
+            end = datetime.fromisoformat(self.end_date)
+            return end > start
+        except ValueError:
+            return False
+
+
+class AnalyticsSnapshotCreateRequest(BaseModel):
+    period: str = Field(min_length=1, max_length=20)
+    net_worth: float = Field(ge=0)
+    goal_total: float = Field(ge=0)
+    expense_total: float = Field(ge=0)
+
+
+class HealthRecordCreateRequest(BaseModel):
+    record_type: Literal["checkup", "exercise", "sleep", "nutrition", "wellness"]
+    date: str
+    value: str = Field(min_length=1, max_length=200)
+    notes: str = Field(min_length=1, max_length=500)
+
+
+class EmergencyContactCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    relationship: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=1, max_length=50)
+    email: str = Field(min_length=1, max_length=200)
+
+
+class RelationshipRecordCreateRequest(BaseModel):
+    category: Literal["family", "friend", "mentor", "professional", "community"]
+    name: str = Field(min_length=1, max_length=200)
+    status: str = Field(min_length=1, max_length=100)
+    notes: str = Field(min_length=1, max_length=500)
+
+
+class ReadinessItemCreateRequest(BaseModel):
+    category: Literal["legal", "health", "emergency", "financial"]
+    title: str = Field(min_length=1, max_length=200)
+    status: Literal["pending", "review", "complete"]
+    notes: str = Field(min_length=1, max_length=500)
+
+
 SENSITIVE_KEYS = {
     "password",
     "secret",
@@ -354,3 +440,454 @@ def list_users(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, o
 def audit_logs(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
     _require_admin(user, "audit.logs")
     return {"events": _AUDIT_LOGS}
+
+
+_GOALS: list[dict[str, Any]] = []
+_INVESTMENTS: list[dict[str, Any]] = []
+_TRANSACTIONS: list[dict[str, Any]] = []
+_INSURANCE_POLICIES: list[dict[str, Any]] = []
+_ANALYTICS_SNAPSHOTS: list[dict[str, Any]] = []
+_HEALTH_RECORDS: list[dict[str, Any]] = []
+_EMERGENCY_CONTACTS: list[dict[str, Any]] = []
+_RELATIONSHIP_RECORDS: list[dict[str, Any]] = []
+_READINESS_ITEMS: list[dict[str, Any]] = []
+
+
+def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
+    return [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user_email]
+
+
+def _calculate_coverage_score(user_email: str) -> int:
+    policies = _get_user_policies(user_email)
+    if not policies:
+        return 0
+
+    total_coverage = sum(float(policy["coverage_amount"]) for policy in policies)
+    total_premium = sum(float(policy["premium_amount"]) for policy in policies)
+    if total_premium <= 0:
+        return 0
+
+    score = min(100, int((total_coverage / total_premium) * 10))
+    return max(0, score)
+
+
+@app.post("/api/v1/goals", tags=["goals"], status_code=status.HTTP_201_CREATED)
+def create_goal(
+    payload: GoalCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    goal = {
+        "id": str(len(_GOALS) + 1),
+        "name": payload.name,
+        "category": payload.category,
+        "target_amount": payload.target_amount,
+        "target_currency": payload.target_currency,
+        "target_date": payload.target_date,
+        "status": payload.status,
+        "priority": payload.priority,
+        "owner_email": user["email"],
+    }
+    _GOALS.append(goal)
+    return goal
+
+
+@app.get("/api/v1/goals", tags=["goals"])
+def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_goals = [goal for goal in _GOALS if goal["owner_email"] == user["email"]]
+    return {"goals": owner_goals}
+
+
+@app.post("/api/v1/investments", tags=["investments"], status_code=status.HTTP_201_CREATED)
+def create_investment(
+    payload: InvestmentCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    investment = {
+        "id": str(len(_INVESTMENTS) + 1),
+        "name": payload.name,
+        "asset_class": payload.asset_class,
+        "currency": payload.currency,
+        "amount_invested": payload.amount_invested,
+        "units": payload.units,
+        "unit_value": payload.unit_value,
+        "valuation_source": payload.valuation_source,
+        "valuation_timestamp": payload.valuation_timestamp,
+        "owner_email": user["email"],
+    }
+    _INVESTMENTS.append(investment)
+    return investment
+
+
+@app.get("/api/v1/investments", tags=["investments"])
+def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
+    return {"investments": owner_investments}
+
+
+@app.post("/api/v1/insurance/policies", tags=["insurance"], status_code=status.HTTP_201_CREATED)
+def create_insurance_policy(
+    payload: InsurancePolicyCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    if not payload.dates_valid:
+        raise HTTPException(status_code=422, detail="Policy end_date must be after start_date")
+
+    policy = {
+        "id": str(len(_INSURANCE_POLICIES) + 1),
+        "name": payload.name,
+        "policy_type": payload.policy_type,
+        "premium_amount": payload.premium_amount,
+        "coverage_amount": payload.coverage_amount,
+        "start_date": payload.start_date,
+        "end_date": payload.end_date,
+        "owner_email": user["email"],
+    }
+    _INSURANCE_POLICIES.append(policy)
+    return policy
+
+
+@app.get("/api/v1/insurance/policies", tags=["insurance"])
+def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_policies = [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]]
+    return {"policies": owner_policies}
+
+
+@app.get("/api/v1/insurance/coverage-score", tags=["insurance"])
+def insurance_coverage_score(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    policies = _get_user_policies(user["email"])
+    coverage_amount = sum(float(policy["coverage_amount"]) for policy in policies)
+    score = _calculate_coverage_score(user["email"])
+    return {
+        "score": score,
+        "provider": "basic-vision-v1",
+        "policy_count": len(policies),
+        "coverage_amount": coverage_amount,
+    }
+
+
+@app.post("/api/v1/analytics/snapshots", tags=["analytics"], status_code=status.HTTP_201_CREATED)
+def create_analytics_snapshot(
+    payload: AnalyticsSnapshotCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    snapshot = {
+        "id": str(len(_ANALYTICS_SNAPSHOTS) + 1),
+        "period": payload.period,
+        "net_worth": payload.net_worth,
+        "goal_total": payload.goal_total,
+        "expense_total": payload.expense_total,
+        "owner_email": user["email"],
+    }
+    _ANALYTICS_SNAPSHOTS.append(snapshot)
+    return snapshot
+
+
+@app.get("/api/v1/analytics/snapshots", tags=["analytics"])
+def list_analytics_snapshots(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_snapshots = [snapshot for snapshot in _ANALYTICS_SNAPSHOTS if snapshot["owner_email"] == user["email"]]
+    return {"snapshots": owner_snapshots}
+
+
+@app.get("/api/v1/analytics/insights", tags=["analytics"])
+def analytics_insights(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    snapshots = [snapshot for snapshot in _ANALYTICS_SNAPSHOTS if snapshot["owner_email"] == user["email"]]
+    insights: list[dict[str, Any]] = []
+    if snapshots:
+        latest = snapshots[-1]
+        if latest["expense_total"] > 0:
+            insights.append(
+                {
+                    "type": "expense-trend",
+                    "label": "Expense trend review",
+                    "source": "snapshot",
+                    "rationale": "Current expense total is recorded from the latest snapshot.",
+                    "advice": False,
+                }
+            )
+        if latest["net_worth"] > 0:
+            insights.append(
+                {
+                    "type": "net-worth",
+                    "label": "Net worth review",
+                    "source": "snapshot",
+                    "rationale": "Net worth reflects the current tracked value in the latest snapshot.",
+                    "advice": False,
+                }
+            )
+    if not insights:
+        insights.append(
+            {
+                "type": "baseline",
+                "label": "No data yet",
+                "source": "system",
+                "rationale": "Add snapshot data to generate an explainable analysis summary.",
+                "advice": False,
+            }
+        )
+    return {"insights": insights}
+
+
+@app.get("/api/v1/dashboard/summary", tags=["dashboard"])
+def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    owner_goals = [goal for goal in _GOALS if goal["owner_email"] == user["email"]]
+    owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
+    owner_policies = _get_user_policies(user["email"])
+
+    status = "ready" if owner_goals or owner_investments or owner_policies else "partial"
+    currency = "INR"
+    return {
+        "goal_count": len(owner_goals),
+        "investment_count": len(owner_investments),
+        "insurance_count": len(owner_policies),
+        "coverage_score": _calculate_coverage_score(user["email"]),
+        "currency": currency,
+        "status": status,
+    }
+
+
+@app.get("/api/v1/operations/summary", tags=["operations"])
+def operations_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    dependency_status = {
+        "database": "ok",
+        "cache": "ok",
+        "object_storage": "partial",
+    }
+    metrics = {
+        "audit_event_count": len(_AUDIT_LOGS),
+        "user_count": len(_USERS),
+        "goal_count": len(_GOALS),
+        "investment_count": len(_INVESTMENTS),
+        "policy_count": len(_INSURANCE_POLICIES),
+    }
+
+    if any(value == "partial" for value in dependency_status.values()):
+        status_value = "degraded"
+    else:
+        status_value = "ok"
+
+    return {
+        "status": status_value,
+        "dependencies": dependency_status,
+        "metrics": metrics,
+    }
+
+
+@app.get("/api/v1/launch/governance", tags=["launch"])
+def launch_governance() -> dict[str, Any]:
+    checklist = [
+        {"id": "G1", "name": "Architecture", "status": "approved"},
+        {"id": "G2", "name": "Secure foundation", "status": "approved"},
+        {"id": "G3", "name": "Domain correctness", "status": "approved"},
+        {"id": "G4", "name": "Dashboard readiness", "status": "approved"},
+        {"id": "G5", "name": "Production release", "status": "pending"},
+    ]
+    signoffs = {
+        "product": "approved",
+        "engineering": "approved",
+        "security": "approved",
+        "privacy": "approved",
+        "operations": "pending",
+    }
+
+    status = "ready" if all(item["status"] == "approved" for item in checklist[:-1]) else "pending"
+    return {
+        "status": status,
+        "checklist": checklist,
+        "signoffs": signoffs,
+    }
+
+
+@app.get("/api/v1/release/runbook", tags=["release"])
+def release_runbook() -> dict[str, Any]:
+    return {
+        "status": "ready",
+        "rollback": [
+            {"step": "Pause traffic to the new release", "owner": "engineering"},
+            {"step": "Restore prior deployment artifact", "owner": "platform"},
+            {"step": "Validate data integrity and user access", "owner": "security"},
+        ],
+        "support": {
+            "escalation": "Page engineering leads and product owner for release incidents",
+            "runbook": "Monitor error rate, auth failures, and dashboard freshness during rollback window",
+        },
+    }
+
+
+@app.get("/api/v1/release/decision", tags=["release"])
+def release_decision() -> dict[str, Any]:
+    known_limitations = [
+        {
+            "id": "L-01",
+            "area": "data quality",
+            "risk": "Manual FX and statement parsing still require human review for edge cases.",
+            "mitigation": "Use review queues and explicit audit trails before publishing results.",
+        },
+        {
+            "id": "L-02",
+            "area": "operations",
+            "risk": "Production monitoring and rollback drills remain partially gated by environment readiness.",
+            "mitigation": "Validate the full runbook during the launch window and keep a rollback path ready.",
+        },
+    ]
+    signoff_status = {
+        "product": "approved",
+        "engineering": "approved",
+        "security": "approved",
+        "privacy": "approved",
+        "operations": "pending",
+    }
+    status = "pending" if signoff_status["operations"] == "pending" else "ready"
+    return {
+        "status": status,
+        "decision": status,
+        "known_limitations": known_limitations,
+        "signoff_status": signoff_status,
+    }
+
+
+@app.post("/api/v1/health/records", tags=["health"], status_code=status.HTTP_201_CREATED)
+def create_health_record(
+    payload: HealthRecordCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    record = {
+        "id": str(len(_HEALTH_RECORDS) + 1),
+        "record_type": payload.record_type,
+        "date": payload.date,
+        "value": payload.value,
+        "notes": payload.notes,
+        "owner_email": user["email"],
+    }
+    _HEALTH_RECORDS.append(record)
+    return record
+
+
+@app.get("/api/v1/health/records", tags=["health"])
+def list_health_records(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_records = [record for record in _HEALTH_RECORDS if record["owner_email"] == user["email"]]
+    return {"records": owner_records}
+
+
+@app.post("/api/v1/legal/emergency-contacts", tags=["legal"], status_code=status.HTTP_201_CREATED)
+def create_emergency_contact(
+    payload: EmergencyContactCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    contact = {
+        "id": str(len(_EMERGENCY_CONTACTS) + 1),
+        "name": payload.name,
+        "relationship": payload.relationship,
+        "phone": payload.phone,
+        "email": payload.email,
+        "owner_email": user["email"],
+    }
+    _EMERGENCY_CONTACTS.append(contact)
+    return contact
+
+
+@app.get("/api/v1/legal/emergency-contacts", tags=["legal"])
+def list_emergency_contacts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_contacts = [contact for contact in _EMERGENCY_CONTACTS if contact["owner_email"] == user["email"]]
+    return {"contacts": owner_contacts}
+
+
+@app.post("/api/v1/relationships/records", tags=["relationships"], status_code=status.HTTP_201_CREATED)
+def create_relationship_record(
+    payload: RelationshipRecordCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    record = {
+        "id": str(len(_RELATIONSHIP_RECORDS) + 1),
+        "category": payload.category,
+        "name": payload.name,
+        "status": payload.status,
+        "notes": payload.notes,
+        "owner_email": user["email"],
+    }
+    _RELATIONSHIP_RECORDS.append(record)
+    return record
+
+
+@app.get("/api/v1/relationships/records", tags=["relationships"])
+def list_relationship_records(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_records = [record for record in _RELATIONSHIP_RECORDS if record["owner_email"] == user["email"]]
+    return {"records": owner_records}
+
+
+@app.post("/api/v1/readiness/items", tags=["readiness"], status_code=status.HTTP_201_CREATED)
+def create_readiness_item(
+    payload: ReadinessItemCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    item = {
+        "id": str(len(_READINESS_ITEMS) + 1),
+        "category": payload.category,
+        "title": payload.title,
+        "status": payload.status,
+        "notes": payload.notes,
+        "owner_email": user["email"],
+    }
+    _READINESS_ITEMS.append(item)
+    return item
+
+
+@app.get("/api/v1/readiness/items", tags=["readiness"])
+def list_readiness_items(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_items = [item for item in _READINESS_ITEMS if item["owner_email"] == user["email"]]
+    return {"items": owner_items}
+
+
+@app.get("/api/v1/domains/summary", tags=["domains"])
+def domain_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    domains = {
+        "health": {
+            "count": len([record for record in _HEALTH_RECORDS if record["owner_email"] == user["email"]]),
+            "status": "ready" if any(record["owner_email"] == user["email"] for record in _HEALTH_RECORDS) else "partial",
+        },
+        "legal": {
+            "count": len([contact for contact in _EMERGENCY_CONTACTS if contact["owner_email"] == user["email"]]),
+            "status": "ready" if any(contact["owner_email"] == user["email"] for contact in _EMERGENCY_CONTACTS) else "partial",
+        },
+        "relationships": {
+            "count": len([record for record in _RELATIONSHIP_RECORDS if record["owner_email"] == user["email"]]),
+            "status": "ready" if any(record["owner_email"] == user["email"] for record in _RELATIONSHIP_RECORDS) else "partial",
+        },
+        "readiness": {
+            "count": len([item for item in _READINESS_ITEMS if item["owner_email"] == user["email"]]),
+            "status": "ready" if any(item["owner_email"] == user["email"] for item in _READINESS_ITEMS) else "partial",
+        },
+    }
+    status = "ready" if all(value["status"] == "ready" for value in domains.values()) else "partial"
+    return {"status": status, "domains": domains}
+
+
+@app.post("/api/v1/transactions/import", tags=["transactions"], status_code=status.HTTP_201_CREATED)
+def import_transactions(
+    payload: TransactionImportRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    imported: list[dict[str, Any]] = []
+    for record in payload.records:
+        if record.type not in {"credit", "debit"}:
+            raise HTTPException(status_code=422, detail="Transaction type must be credit or debit")
+        imported.append(
+            {
+                "date": record.date,
+                "description": record.description,
+                "amount": record.amount,
+                "type": record.type,
+                "owner_email": user["email"],
+            }
+        )
+    _TRANSACTIONS.extend(imported)
+    return {
+        "source_name": payload.source_name,
+        "record_count": len(imported),
+        "owner_email": user["email"],
+    }
+
+
+@app.get("/api/v1/transactions", tags=["transactions"])
+def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
+    return {"transactions": owner_transactions}
