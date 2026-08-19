@@ -16,6 +16,7 @@ _USERS: dict[str, dict[str, Any]] = {}
 _ACCESS_TOKENS: dict[str, dict[str, Any]] = {}
 _REFRESH_TOKENS: dict[str, dict[str, Any]] = {}
 _AUDIT_LOGS: list[dict[str, Any]] = []
+_USER_PREFERENCES: dict[str, dict[str, Any]] = {}
 
 
 class RegisterRequest(BaseModel):
@@ -31,6 +32,12 @@ class LoginRequest(BaseModel):
 
 class TokenRefreshRequest(BaseModel):
     refresh_token: str
+
+
+class UserPreferencesRequest(BaseModel):
+    theme: str = Field(default="light")
+    currency: str = Field(default="INR")
+    email_notifications: bool = True
 
 
 class GoalCreateRequest(BaseModel):
@@ -117,6 +124,12 @@ class ReadinessItemCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     status: Literal["pending", "review", "complete"]
     notes: str = Field(min_length=1, max_length=500)
+
+
+class PrivacyConsentRequest(BaseModel):
+    marketing: bool = False
+    analytics: bool = False
+    data_export: bool = False
 
 
 SENSITIVE_KEYS = {
@@ -373,6 +386,7 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
     _USERS[email] = {
         "email": email,
         "role": payload.role,
+        "status": "active",
         "password_hash": password_hash,
         "password_salt": salt,
     }
@@ -388,7 +402,7 @@ def login_user(payload: LoginRequest) -> dict[str, str]:
     email = payload.email.lower().strip()
     user = _USERS.get(email)
 
-    if user is None:
+    if user is None or user.get("status") == "deleted":
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     _, expected_hash = _hash_password(payload.password, user["password_salt"])
@@ -430,6 +444,143 @@ def get_current_profile(user: dict[str, Any] = Depends(_get_current_user)) -> di
     return {"email": user["email"], "role": user["role"]}
 
 
+@app.put("/api/v1/auth/preferences", tags=["auth"])
+def update_user_preferences(
+    payload: UserPreferencesRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    preferences = _USER_PREFERENCES.setdefault(user["email"], {})
+    preferences.update({
+        "theme": payload.theme,
+        "currency": payload.currency,
+        "email_notifications": payload.email_notifications,
+    })
+    _record_audit(
+        "auth.preferences_updated",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="user preferences updated",
+    )
+    return preferences
+
+
+@app.get("/api/v1/auth/preferences", tags=["auth"])
+def get_user_preferences(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return _USER_PREFERENCES.get(
+        user["email"],
+        {"theme": "light", "currency": "INR", "email_notifications": True},
+    )
+
+
+@app.get("/api/v1/privacy/export", tags=["privacy"])
+def export_user_data_api(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    snapshot = export_user_data(
+        {
+            "email": user["email"],
+            "role": user["role"],
+            "profile": {
+                "status": user.get("status", "active"),
+                "goals": [goal for goal in _GOALS if goal["owner_email"] == user["email"]],
+                "investments": [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]],
+                "policies": [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]],
+                "transactions": [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]],
+            },
+        }
+    )
+    _record_audit(
+        "privacy.exported",
+        actor=user["email"],
+        resource="privacy.export",
+        detail="user data export generated",
+    )
+    return snapshot
+
+
+@app.post("/api/v1/privacy/delete-account", tags=["privacy"])
+def delete_user_account(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    current = _USERS.get(user["email"])
+    if current is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    current["status"] = "deleted"
+    for token, session in list(_ACCESS_TOKENS.items()):
+        if session.get("email") == user["email"]:
+            del _ACCESS_TOKENS[token]
+    for token, session in list(_REFRESH_TOKENS.items()):
+        if session.get("email") == user["email"]:
+            del _REFRESH_TOKENS[token]
+
+    _record_audit(
+        "privacy.account_deleted",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="account deletion requested and tokens revoked",
+    )
+    return handle_account_deletion({"email": user["email"], "status": current.get("status", "active")})
+
+
+@app.post("/api/v1/privacy/consents", tags=["privacy"])
+def set_privacy_consents(
+    payload: PrivacyConsentRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, bool]:
+    current = _PRIVACY_CONSENTS.setdefault(user["email"], {})
+    current.update({
+        "marketing": payload.marketing,
+        "analytics": payload.analytics,
+        "data_export": payload.data_export,
+    })
+    _record_audit(
+        "privacy.consents_updated",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="consent preferences updated",
+    )
+    return current
+
+
+@app.get("/api/v1/privacy/consents", tags=["privacy"])
+def get_privacy_consents(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    consent_state = _PRIVACY_CONSENTS.get(user["email"], {"marketing": False, "analytics": False, "data_export": False})
+    return consent_state
+
+
+@app.get("/api/v1/alerts", tags=["alerts"])
+def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    alerts: list[dict[str, Any]] = []
+    today = datetime.now(timezone.utc).date()
+
+    for goal in _GOALS:
+        if goal["owner_email"] != user["email"]:
+            continue
+        target_date = datetime.fromisoformat(goal["target_date"]).date()
+        if target_date < today:
+            alerts.append(
+                {
+                    "type": "goal_overdue",
+                    "title": goal["name"],
+                    "message": f"Goal '{goal['name']}' is overdue.",
+                    "severity": "high",
+                }
+            )
+
+    for policy in _INSURANCE_POLICIES:
+        if policy["owner_email"] != user["email"]:
+            continue
+        end_date = datetime.fromisoformat(policy["end_date"]).date()
+        if end_date < today:
+            alerts.append(
+                {
+                    "type": "policy_expiring",
+                    "title": policy["name"],
+                    "message": f"Policy '{policy['name']}' has expired.",
+                    "severity": "medium",
+                }
+            )
+
+    return {"alerts": alerts}
+
+
 @app.get("/api/v1/admin/users", tags=["admin"])
 def list_users(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
     _require_admin(user, "admin.users")
@@ -451,6 +602,7 @@ _HEALTH_RECORDS: list[dict[str, Any]] = []
 _EMERGENCY_CONTACTS: list[dict[str, Any]] = []
 _RELATIONSHIP_RECORDS: list[dict[str, Any]] = []
 _READINESS_ITEMS: list[dict[str, Any]] = []
+_PRIVACY_CONSENTS: dict[str, dict[str, bool]] = {}
 
 
 def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
