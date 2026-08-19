@@ -1,3 +1,5 @@
+from fastapi.testclient import TestClient
+
 from app.main import (
     classify_sensitive_data,
     decrypt_backup_payload,
@@ -6,6 +8,72 @@ from app.main import (
     handle_account_deletion,
     redact_sensitive_config,
 )
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_user_can_export_data_and_delete_their_account_via_api() -> None:
+    email = "privacy-user@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    tokens = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()
+    access_token = tokens["access_token"]
+
+    export_response = client.get(
+        "/api/v1/privacy/export",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert export_response.status_code == 200
+    assert export_response.json()["email"] == email
+
+    delete_response = client.post(
+        "/api/v1/privacy/delete-account",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["status"] == "deleted"
+    assert delete_response.json()["deletion_review_required"] is True
+
+
+def test_user_can_manage_privacy_consents() -> None:
+    email = "consent-user@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    tokens = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()
+    access_token = tokens["access_token"]
+
+    set_response = client.post(
+        "/api/v1/privacy/consents",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"marketing": True, "analytics": False, "data_export": True},
+    )
+    assert set_response.status_code == 200
+    body = set_response.json()
+    assert body["marketing"] is True
+    assert body["analytics"] is False
+
+    list_response = client.get(
+        "/api/v1/privacy/consents",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert list_response.status_code == 200
+    assert list_response.json()["marketing"] is True
+    assert list_response.json()["data_export"] is True
 
 
 def test_sensitive_data_is_classified_for_privacy_control() -> None:

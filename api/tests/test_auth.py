@@ -74,6 +74,36 @@ def test_access_token_allows_user_profile_fetch() -> None:
     assert me_response.json()["role"] == "user"
 
 
+def test_user_can_manage_profile_preferences() -> None:
+    email = f"prefs-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    access_token = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()["access_token"]
+
+    updated = client.put(
+        "/api/v1/auth/preferences",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"theme": "dark", "currency": "INR", "email_notifications": True},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["theme"] == "dark"
+    assert updated.json()["currency"] == "INR"
+
+    fetched = client.get(
+        "/api/v1/auth/preferences",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["email_notifications"] is True
+
+
 def test_user_cannot_access_admin_route() -> None:
     email = f"user-admin-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
