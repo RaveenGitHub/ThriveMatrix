@@ -33,6 +33,27 @@ class TokenRefreshRequest(BaseModel):
     refresh_token: str
 
 
+class GoalCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=100)
+    target_amount: float = Field(gt=0)
+    target_currency: str = Field(min_length=3, max_length=3)
+    target_date: str
+    status: str = Field(default="active")
+    priority: str = Field(default="medium")
+
+
+class InvestmentCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    asset_class: str = Field(min_length=1, max_length=100)
+    currency: str = Field(min_length=3, max_length=3)
+    amount_invested: float = Field(gt=0)
+    units: float = Field(gt=0)
+    unit_value: float = Field(gt=0)
+    valuation_source: str = Field(min_length=1, max_length=100)
+    valuation_timestamp: str
+
+
 SENSITIVE_KEYS = {
     "password",
     "secret",
@@ -354,3 +375,60 @@ def list_users(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, o
 def audit_logs(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
     _require_admin(user, "audit.logs")
     return {"events": _AUDIT_LOGS}
+
+
+_GOALS: list[dict[str, Any]] = []
+_INVESTMENTS: list[dict[str, Any]] = []
+
+
+@app.post("/api/v1/goals", tags=["goals"], status_code=status.HTTP_201_CREATED)
+def create_goal(
+    payload: GoalCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    goal = {
+        "id": str(len(_GOALS) + 1),
+        "name": payload.name,
+        "category": payload.category,
+        "target_amount": payload.target_amount,
+        "target_currency": payload.target_currency,
+        "target_date": payload.target_date,
+        "status": payload.status,
+        "priority": payload.priority,
+        "owner_email": user["email"],
+    }
+    _GOALS.append(goal)
+    return goal
+
+
+@app.get("/api/v1/goals", tags=["goals"])
+def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_goals = [goal for goal in _GOALS if goal["owner_email"] == user["email"]]
+    return {"goals": owner_goals}
+
+
+@app.post("/api/v1/investments", tags=["investments"], status_code=status.HTTP_201_CREATED)
+def create_investment(
+    payload: InvestmentCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    investment = {
+        "id": str(len(_INVESTMENTS) + 1),
+        "name": payload.name,
+        "asset_class": payload.asset_class,
+        "currency": payload.currency,
+        "amount_invested": payload.amount_invested,
+        "units": payload.units,
+        "unit_value": payload.unit_value,
+        "valuation_source": payload.valuation_source,
+        "valuation_timestamp": payload.valuation_timestamp,
+        "owner_email": user["email"],
+    }
+    _INVESTMENTS.append(investment)
+    return investment
+
+
+@app.get("/api/v1/investments", tags=["investments"])
+def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
+    return {"investments": owner_investments}
