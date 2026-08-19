@@ -12,7 +12,7 @@ The project is in a verified MVP state for the implemented API backlog. The vali
 The full regression command used locally is:
 
 ```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+cd "D:\User\thrivematrix\ThriveMatrix"
 api/.venv/Scripts/python -m pytest -q api/tests
 ```
 
@@ -43,7 +43,7 @@ The current API covers:
 ### Backend setup
 
 ```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+cd "D:\User\thrivematrix\ThriveMatrix"
 python -m venv api/.venv
 api/.venv/Scripts/python -m pip install --upgrade pip
 api/.venv/Scripts/python -m pip install -e api[dev]
@@ -52,7 +52,7 @@ api/.venv/Scripts/python -m pip install -e api[dev]
 ### Run the API locally
 
 ```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+cd "D:\User\thrivematrix\ThriveMatrix"
 api/.venv/Scripts/python -m uvicorn app.main:app --app-dir api --reload
 ```
 
@@ -64,7 +64,7 @@ The API is available at:
 ### Run the web app
 
 ```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+cd "D:\User\thrivematrix\ThriveMatrix"
 npm install --prefix web
 npm run dev --prefix web
 ```
