@@ -132,3 +132,45 @@ def test_encrypted_backup_round_trips_without_losing_data() -> None:
 
     assert restored == payload
     assert encrypted != payload
+
+
+def test_user_can_create_and_restore_encrypted_backup_and_review_deletion() -> None:
+    email = "backup-review@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    tokens = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()
+    access_token = tokens["access_token"]
+
+    backup_response = client.post(
+        "/api/v1/privacy/backup",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"key": "restore-key-456"},
+    )
+    assert backup_response.status_code == 200
+    backup = backup_response.json()
+    assert backup["email"] == email
+    assert "encrypted_payload" in backup
+
+    restore_response = client.post(
+        "/api/v1/privacy/restore",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"encrypted_payload": backup["encrypted_payload"], "key": "restore-key-456"},
+    )
+    assert restore_response.status_code == 200
+    assert restore_response.json()["status"] == "restored"
+    assert restore_response.json()["email"] == email
+
+    review_response = client.get(
+        "/api/v1/privacy/delete-review",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["deletion_review_required"] is True
+    assert review_response.json()["status"] == "pending_review"

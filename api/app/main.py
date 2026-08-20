@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -211,9 +211,37 @@ class TransactionRecord(BaseModel):
     type: str
 
 
+class TransactionReviewRecord(BaseModel):
+    date: str
+    description: str = Field(min_length=1, max_length=200)
+    amount: float = Field(gt=0)
+    type: str
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("description cannot be blank")
+        return normalized
+
+    @field_validator("type")
+    @classmethod
+    def normalize_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"credit", "debit"}:
+            raise ValueError("Transaction type must be credit or debit")
+        return normalized
+
+
 class TransactionImportRequest(BaseModel):
     source_name: str = Field(min_length=1, max_length=200)
     records: list[TransactionRecord]
+
+
+class TransactionReviewRequest(BaseModel):
+    source_name: str = Field(min_length=1, max_length=200)
+    records: list[TransactionReviewRecord]
 
 
 class InsurancePolicyCreateRequest(BaseModel):
@@ -870,6 +898,46 @@ _RELATIONSHIP_RECORDS: list[dict[str, Any]] = []
 _READINESS_ITEMS: list[dict[str, Any]] = []
 _PRIVACY_CONSENTS: dict[str, dict[str, bool]] = {}
 _USER_BACKUPS: dict[str, str] = {}
+_STATEMENT_UPLOADS: dict[str, dict[str, Any]] = {}
+_IMPORT_JOBS: list[dict[str, Any]] = []
+
+_ALLOWED_STATEMENT_TYPES = {
+    ".pdf": {"application/pdf"},
+    ".csv": {"text/csv", "application/csv", "text/plain"},
+    ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"},
+}
+
+_MAX_STATEMENT_BYTES = 25 * 1024 * 1024
+
+
+def _validate_statement_upload(filename: str | None, content_type: str | None, payload: bytes) -> tuple[str, str]:
+    if not filename or not os.path.basename(filename):
+        raise HTTPException(status_code=400, detail="Statement filename is required")
+
+    if len(payload) == 0:
+        raise HTTPException(status_code=400, detail="Statement file is empty")
+    if len(payload) > _MAX_STATEMENT_BYTES:
+        raise HTTPException(status_code=400, detail="Statement file exceeds the 25 MB limit")
+
+    extension = os.path.splitext(filename)[1].lower()
+    allowed_content_types = _ALLOWED_STATEMENT_TYPES.get(extension)
+    if allowed_content_types is None:
+        raise HTTPException(status_code=400, detail="Unsupported statement file type. Allowed: PDF, CSV, XLSX")
+
+    if content_type and content_type not in allowed_content_types:
+        raise HTTPException(status_code=400, detail="Statement MIME type does not match the allowed file format")
+
+    if payload.startswith(b"MZ"):
+        raise HTTPException(status_code=400, detail="Malware signature detected in statement upload")
+
+    if extension == ".pdf" and not payload.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
+    if extension == ".xlsx" and not payload.startswith(b"PK\x03\x04"):
+        raise HTTPException(status_code=400, detail="XLSX statement is malformed or not a valid document")
+    if extension == ".csv" and b"<script" in payload.lower():
+        raise HTTPException(status_code=400, detail="CSV statement contains unsafe embedded content")
+
+    return extension, content_type or "application/octet-stream"
 
 
 def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
@@ -1456,6 +1524,102 @@ def domain_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[st
     return {"status": status, "domains": domains}
 
 
+@app.post("/api/v1/transactions/upload", tags=["transactions"], status_code=status.HTTP_201_CREATED)
+async def upload_statement(
+    file: UploadFile = File(...),
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    payload = await file.read()
+    extension, content_type = _validate_statement_upload(file.filename, file.content_type, payload)
+
+    job_id = str(len(_IMPORT_JOBS) + 1)
+    storage_location = f"quarantine/{user['email']}/{job_id}-{os.path.basename(file.filename)}"
+    _STATEMENT_UPLOADS[storage_location] = {
+        "owner_email": user["email"],
+        "filename": os.path.basename(file.filename),
+        "content_type": content_type,
+        "file_extension": extension,
+        "size_bytes": len(payload),
+        "storage_location": storage_location,
+        "private": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    job = {
+        "id": job_id,
+        "owner_email": user["email"],
+        "file_name": os.path.basename(file.filename),
+        "type": "statement_upload",
+        "status": "validated",
+        "retries": 0,
+        "max_retries": 3,
+        "storage_location": storage_location,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _IMPORT_JOBS.append(job)
+
+    _record_audit(
+        "transaction.statement_uploaded",
+        actor=user["email"],
+        resource=f"statement:{job_id}",
+        detail="statement uploaded and quarantined for secure review",
+        before=None,
+        after={"status": "validated", "storage_location": storage_location},
+        reason="secure upload validation",
+        correlation_id=secrets.token_urlsafe(12),
+    )
+
+    return {
+        "id": job_id,
+        "status": "validated",
+        "owner_email": user["email"],
+        "filename": os.path.basename(file.filename),
+        "storage": {"private": True, "location": storage_location},
+        "job": {"id": job_id, "status": "validated", "retries": 0, "max_retries": 3},
+    }
+
+
+@app.post("/api/v1/transactions/review", tags=["transactions"])
+def review_transactions(
+    payload: TransactionReviewRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    accepted: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for record in payload.records:
+        normalized = {
+            "date": record.date.strip(),
+            "description": record.description.strip().lower(),
+            "amount": float(record.amount),
+            "type": record.type.strip().lower(),
+        }
+        fingerprint = hashlib.sha256(
+            f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}".encode("utf-8")
+        ).hexdigest()
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        accepted.append(
+            {
+                "date": normalized["date"],
+                "description": normalized["description"],
+                "amount": normalized["amount"],
+                "type": normalized["type"],
+                "owner_email": user["email"],
+                "source_name": payload.source_name,
+                "fingerprint": fingerprint,
+            }
+        )
+
+    return {
+        "source_name": payload.source_name,
+        "accepted_count": len(accepted),
+        "duplicate_count": len(payload.records) - len(accepted),
+        "transactions": accepted,
+    }
+
+
 @app.post("/api/v1/transactions/import", tags=["transactions"], status_code=status.HTTP_201_CREATED)
 def import_transactions(
     payload: TransactionImportRequest,
@@ -1480,6 +1644,56 @@ def import_transactions(
         "record_count": len(imported),
         "owner_email": user["email"],
     }
+
+
+def _categorize_transaction(description: str) -> str:
+    lowered = description.strip().lower()
+    if any(keyword in lowered for keyword in ["salary", "payroll", "bonus", "income", "freelance", "project"]):
+        return "salary"
+    if any(keyword in lowered for keyword in ["rent", "mortgage", "lease", "housing"]):
+        return "housing"
+    if any(keyword in lowered for keyword in ["grocery", "groceries", "food", "supermarket", "milk", "fruit"]):
+        return "food"
+    if any(keyword in lowered for keyword in ["insurance", "premium"]):
+        return "insurance"
+    if any(keyword in lowered for keyword in ["travel", "flight", "hotel", "uber", "cab"]):
+        return "travel"
+    if any(keyword in lowered for keyword in ["utility", "electricity", "water", "internet", "phone"]):
+        return "utilities"
+    if any(keyword in lowered for keyword in ["loan", "emi", "credit card", "interest"]):
+        return "debt"
+    return "other"
+
+
+@app.get("/api/v1/transactions/summary", tags=["transactions"])
+def transaction_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+    owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
+    income_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "credit")
+    expense_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "debit")
+    net_total = income_total - expense_total
+    savings_rate = (net_total / income_total * 100.0) if income_total else 0.0
+    return {
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "net_total": net_total,
+        "savings_rate": round(savings_rate, 2),
+        "transaction_count": len(owner_transactions),
+    }
+
+
+@app.get("/api/v1/transactions/categories", tags=["transactions"])
+def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
+    bucket: dict[str, float] = {}
+    for transaction in owner_transactions:
+        category = _categorize_transaction(transaction["description"])
+        bucket[category] = bucket.get(category, 0.0) + float(transaction["amount"])
+
+    categories = [
+        {"category": category, "total": round(total, 2), "count": len([t for t in owner_transactions if _categorize_transaction(t["description"]) == category])}
+        for category, total in sorted(bucket.items())
+    ]
+    return {"categories": categories}
 
 
 @app.get("/api/v1/transactions", tags=["transactions"])
