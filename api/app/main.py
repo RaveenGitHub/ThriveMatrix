@@ -1,16 +1,67 @@
 import hashlib
 import hmac
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 app = FastAPI(title="ThriveMatrix API", version="0.1.0", docs_url="/docs")
 security = HTTPBearer(auto_error=False)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    request_id = request.headers.get("x-request-id", "stage0-local")
+    code = {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        429: "rate_limited",
+        500: "internal_error",
+    }.get(exc.status_code, "http_error")
+    message = str(exc.detail) if exc.detail else "Request failed"
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": message,
+            "error": {
+                "code": code,
+                "message": message,
+                "request_id": request_id,
+                "status": exc.status_code,
+            },
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request_id = request.headers.get("x-request-id", "stage0-local")
+    message = "Request validation failed"
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": message,
+            "error": {
+                "code": "validation_error",
+                "message": message,
+                "request_id": request_id,
+                "status": 422,
+                "details": exc.errors(),
+            },
+        },
+    )
 
 _USERS: dict[str, dict[str, Any]] = {}
 _ACCESS_TOKENS: dict[str, dict[str, Any]] = {}
@@ -370,6 +421,24 @@ def runtime_contract() -> dict[str, object]:
         "fiscal_year": "April-March",
         "fx_policy": "manual-valuation",
         "financial_advice": False,
+    }
+
+
+@app.get("/api/v1/config", tags=["platform"])
+def runtime_config() -> dict[str, object]:
+    config = {
+        "APP_ENV": os.environ.get("APP_ENV", "local"),
+        "APP_SECRET": os.environ.get("APP_SECRET", ""),
+        "DATABASE_URL": os.environ.get("DATABASE_URL", ""),
+        "REDIS_URL": os.environ.get("REDIS_URL", ""),
+    }
+    missing = validate_runtime_config(config)
+    redacted = redact_sensitive_config(config)
+    return {
+        "status": "misconfigured" if missing else "ready",
+        "missing": missing,
+        "redacted": redacted,
+        "required_keys": ["APP_SECRET", "DATABASE_URL"],
     }
 
 
