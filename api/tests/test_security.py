@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.main import redact_sensitive_fields, validate_runtime_config
 
 
@@ -38,3 +40,30 @@ def test_runtime_configuration_fails_closed_on_missing_secrets() -> None:
 
     assert "APP_SECRET" in missing
     assert "DATABASE_URL" in missing
+
+
+def test_runtime_config_endpoint_redacts_sensitive_values() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    response = client.get("/api/v1/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "misconfigured"
+    assert "APP_SECRET" in body["missing"]
+    assert "DATABASE_URL" in body["missing"]
+    assert body["redacted"]["APP_SECRET"] == "[REDACTED]"
+    assert body["redacted"]["DATABASE_URL"] == "[REDACTED]"
+
+
+def test_local_runtime_manifest_includes_api_and_web_services() -> None:
+    compose_file = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+    compose_text = compose_file.read_text(encoding="utf-8")
+
+    assert "services:" in compose_text
+    assert "api:" in compose_text
+    assert "web:" in compose_text
+    assert "healthcheck:" in compose_text

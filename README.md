@@ -6,16 +6,23 @@ ThriveMatrix is a personal financial and life-readiness management platform focu
 
 The project is in a verified MVP state for the implemented API backlog and the active product UI slice. The current branch is green with:
 
-- 53 passed in the backend suite
+- 56 passed in the backend suite
 - 1 non-blocking dependency warning from the FastAPI/TestClient stack
-- Next.js production build succeeded with 27 generated routes
+- Next.js production build succeeded with 35 generated routes
 
 The local validation commands used are:
 
 ```powershell
-cd "D:\User\thrivematrix\ThriveMatrix"
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
 api/.venv/Scripts/python -m pytest -q api/tests
 npm --prefix web run build
+```
+
+The project also includes a one-command startup script for the required local services:
+
+```powershell
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+./scripts/start-local.ps1
 ```
 
 ## Product scope
@@ -52,7 +59,7 @@ The current web product slice includes the following feature routes:
 ### Backend setup
 
 ```powershell
-cd "D:\User\thrivematrix\ThriveMatrix"
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
 python -m venv api/.venv
 api/.venv/Scripts/python -m pip install --upgrade pip
 api/.venv/Scripts/python -m pip install -e api[dev]
@@ -61,7 +68,7 @@ api/.venv/Scripts/python -m pip install -e api[dev]
 ### Run the API locally
 
 ```powershell
-cd "D:\User\thrivematrix\ThriveMatrix"
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
 api/.venv/Scripts/python -m uvicorn app.main:app --app-dir api --reload
 ```
 
@@ -73,7 +80,7 @@ The API is available at:
 ### Run the web app
 
 ```powershell
-cd "D:\User\thrivematrix\ThriveMatrix"
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
 npm install --prefix web
 npm run dev --prefix web
 ```
@@ -85,7 +92,7 @@ The web server is expected at:
 The production build should be checked with:
 
 ```powershell
-cd "D:\User\thrivematrix\ThriveMatrix"
+cd "D:\Raveendran\thrivematrix\ThriveMatrix"
 npm --prefix web run build
 ```
 
