@@ -3,13 +3,14 @@ import hmac
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 app = FastAPI(title="ThriveMatrix API", version="0.1.0", docs_url="/docs")
@@ -45,10 +46,25 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
     )
 
 
+def _normalize_validation_errors(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalize_validation_errors(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_validation_errors(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_validation_errors(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, BaseException):
+        return str(value)
+    return str(value)
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     request_id = request.headers.get("x-request-id", "stage0-local")
     message = "Request validation failed"
+    normalized_errors = _normalize_validation_errors(exc.errors())
     return JSONResponse(
         status_code=422,
         content={
@@ -58,7 +74,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
                 "message": message,
                 "request_id": request_id,
                 "status": 422,
-                "details": exc.errors(),
+                "details": normalized_errors,
             },
         },
     )
@@ -100,6 +116,72 @@ class GoalCreateRequest(BaseModel):
     status: str = Field(default="active")
     priority: str = Field(default="medium")
 
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, value: str) -> str:
+        try:
+            datetime.fromisoformat(value)
+        except ValueError as exc:  # pragma: no cover - validated through FastAPI
+            raise ValueError("target_date must be a valid ISO date string") from exc
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        allowed = {"active", "paused", "completed", "archived"}
+        if value not in allowed:
+            raise ValueError("status must be one of: active, paused, completed, archived")
+        return value
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str) -> str:
+        allowed = {"low", "medium", "high"}
+        if value not in allowed:
+            raise ValueError("priority must be one of: low, medium, high")
+        return value
+
+
+class GoalUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = Field(default=None, min_length=1, max_length=100)
+    target_amount: float | None = Field(default=None, gt=0)
+    target_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    target_date: str | None = None
+    status: str | None = None
+    priority: str | None = None
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            datetime.fromisoformat(value)
+        except ValueError as exc:  # pragma: no cover - validated through FastAPI
+            raise ValueError("target_date must be a valid ISO date string") from exc
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        allowed = {"active", "paused", "completed", "archived"}
+        if value not in allowed:
+            raise ValueError("status must be one of: active, paused, completed, archived")
+        return value
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        allowed = {"low", "medium", "high"}
+        if value not in allowed:
+            raise ValueError("priority must be one of: low, medium, high")
+        return value
+
 
 class InvestmentCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -110,6 +192,16 @@ class InvestmentCreateRequest(BaseModel):
     unit_value: float = Field(gt=0)
     valuation_source: str = Field(min_length=1, max_length=100)
     valuation_timestamp: str
+    goal_id: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @property
+    def current_asset_value(self) -> Decimal:
+        return Decimal(str(self.units)) * Decimal(str(self.unit_value))
+
+    @property
+    def gain_loss(self) -> Decimal:
+        return self.current_asset_value - Decimal(str(self.amount_invested))
 
 
 class TransactionRecord(BaseModel):
@@ -181,6 +273,15 @@ class PrivacyConsentRequest(BaseModel):
     marketing: bool = False
     analytics: bool = False
     data_export: bool = False
+
+
+class PrivacyBackupRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=128)
+
+
+class PrivacyRestoreRequest(BaseModel):
+    encrypted_payload: str = Field(min_length=1)
+    key: str = Field(min_length=1, max_length=128)
 
 
 SENSITIVE_KEYS = {
@@ -285,13 +386,27 @@ def handle_account_deletion(state: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _record_audit(event: str, *, actor: str | None, resource: str, detail: str) -> None:
+def _record_audit(
+    event: str,
+    *,
+    actor: str | None,
+    resource: str,
+    detail: str,
+    before: Any | None = None,
+    after: Any | None = None,
+    reason: str | None = None,
+    correlation_id: str | None = None,
+) -> None:
     _AUDIT_LOGS.append(
         {
             "event": event,
             "actor": actor,
             "resource": resource,
             "detail": detail,
+            "before": redact_sensitive_fields(before) if before is not None else None,
+            "after": redact_sensitive_fields(after) if after is not None else None,
+            "reason": reason or detail,
+            "correlation_id": correlation_id or secrets.token_urlsafe(12),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
@@ -382,6 +497,10 @@ def _require_admin(user: dict[str, Any], resource: str) -> None:
             actor=user["email"],
             resource=resource,
             detail="admin role required",
+            before={"role": user.get("role")},
+            after={"required_role": "admin", "actual_role": user.get("role")},
+            reason="admin role required",
+            correlation_id=secrets.token_urlsafe(12),
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -394,6 +513,8 @@ async def add_request_id(request: Request, call_next):
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
+    response.headers["strict-transport-security"] = "max-age=31536000; includeSubDomains"
+    response.headers["content-security-policy"] = "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
     return response
 
 
@@ -614,6 +735,70 @@ def get_privacy_consents(user: dict[str, Any] = Depends(_get_current_user)) -> d
     return consent_state
 
 
+@app.post("/api/v1/privacy/backup", tags=["privacy"])
+def create_backup(
+    payload: PrivacyBackupRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, str]:
+    backup_payload = {
+        "email": user["email"],
+        "role": user["role"],
+        "status": user.get("status", "active"),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "consents": _PRIVACY_CONSENTS.get(user["email"], {"marketing": False, "analytics": False, "data_export": False}),
+    }
+    encrypted_payload = encrypt_backup_payload(backup_payload, payload.key)
+    _USER_BACKUPS[user["email"]] = encrypted_payload
+    _record_audit(
+        "privacy.backup_created",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="encrypted backup created",
+        before=None,
+        after={"status": "backed_up"},
+        reason="backup created",
+        correlation_id=secrets.token_urlsafe(12),
+    )
+    return {"email": user["email"], "encrypted_payload": encrypted_payload, "status": "backed_up"}
+
+
+@app.post("/api/v1/privacy/restore", tags=["privacy"])
+def restore_backup(
+    payload: PrivacyRestoreRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        restored = decrypt_backup_payload(payload.encrypted_payload, payload.key)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise HTTPException(status_code=400, detail="Invalid backup payload or key") from exc
+
+    if restored.get("email") != user["email"]:
+        raise HTTPException(status_code=400, detail="Backup does not match the current user")
+
+    _record_audit(
+        "privacy.backup_restored",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="encrypted backup restored",
+        before={"encrypted_payload": "[REDACTED]"},
+        after={"status": "restored", "email": user["email"]},
+        reason="restore backup",
+        correlation_id=secrets.token_urlsafe(12),
+    )
+    return {"status": "restored", "email": restored["email"], "role": restored.get("role")}
+
+
+@app.get("/api/v1/privacy/delete-review", tags=["privacy"])
+def get_delete_review(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    status = "deleted" if user.get("status") == "deleted" else "pending_review"
+    return {
+        "status": status,
+        "deletion_review_required": True,
+        "review_required_for": "account_deletion",
+        "owner_email": user["email"],
+    }
+
+
 @app.get("/api/v1/alerts", tags=["alerts"])
 def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     alerts: list[dict[str, Any]] = []
@@ -622,6 +807,7 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
     for goal in _GOALS:
         if goal["owner_email"] != user["email"]:
             continue
+
         target_date = datetime.fromisoformat(goal["target_date"]).date()
         if target_date < today:
             alerts.append(
@@ -630,6 +816,17 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
                     "title": goal["name"],
                     "message": f"Goal '{goal['name']}' is overdue.",
                     "severity": "high",
+                }
+            )
+
+        progress = _calculate_goal_progress(goal, user["email"])
+        if goal.get("status") == "active" and progress["remaining_amount"] > 0:
+            alerts.append(
+                {
+                    "type": "goal_underfunded",
+                    "title": goal["name"],
+                    "message": f"Goal '{goal['name']}' is underfunded by {progress['remaining_amount']:.2f} {goal['target_currency']}.",
+                    "severity": "medium",
                 }
             )
 
@@ -672,10 +869,39 @@ _EMERGENCY_CONTACTS: list[dict[str, Any]] = []
 _RELATIONSHIP_RECORDS: list[dict[str, Any]] = []
 _READINESS_ITEMS: list[dict[str, Any]] = []
 _PRIVACY_CONSENTS: dict[str, dict[str, bool]] = {}
+_USER_BACKUPS: dict[str, str] = {}
 
 
 def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
     return [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user_email]
+
+
+def _get_goal_for_user(goal_id: str, user_email: str) -> dict[str, Any]:
+    for goal in _GOALS:
+        if goal["id"] == goal_id and goal["owner_email"] == user_email:
+            return goal
+    raise HTTPException(status_code=404, detail="Goal not found")
+
+
+def _calculate_goal_progress(goal: dict[str, Any], user_email: str) -> dict[str, float | int | str]:
+    target_amount = float(goal["target_amount"])
+    current_amount = sum(
+        float(investment.get("current_asset_value", investment["amount_invested"]))
+        for investment in _INVESTMENTS
+        if investment["owner_email"] == user_email and investment.get("goal_id") == goal["id"]
+    )
+    percent_complete = 0.0 if target_amount <= 0 else min(100.0, (current_amount / target_amount) * 100.0)
+    remaining_amount = max(0.0, target_amount - current_amount)
+    return {
+        "goal_id": goal["id"],
+        "goal_name": goal["name"],
+        "target_amount": target_amount,
+        "current_amount": current_amount,
+        "percent_complete": round(percent_complete, 2),
+        "remaining_amount": round(remaining_amount, 2),
+        "funding_gap": round(remaining_amount, 2),
+        "status": goal.get("status", "active"),
+    }
 
 
 def _calculate_coverage_score(user_email: str) -> int:
@@ -709,20 +935,128 @@ def create_goal(
         "owner_email": user["email"],
     }
     _GOALS.append(goal)
+    _record_audit(
+        "goal.created",
+        actor=user["email"],
+        resource=f"goal:{goal['id']}",
+        detail="goal created",
+        before=None,
+        after=goal,
+        reason="create goal",
+        correlation_id=secrets.token_urlsafe(12),
+    )
     return goal
 
 
 @app.get("/api/v1/goals", tags=["goals"])
 def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
-    owner_goals = [goal for goal in _GOALS if goal["owner_email"] == user["email"]]
+    owner_goals = [
+        goal for goal in _GOALS
+        if goal["owner_email"] == user["email"] and goal.get("status") != "archived"
+    ]
     return {"goals": owner_goals}
+
+
+@app.get("/api/v1/goals/{goal_id}", tags=["goals"])
+def get_goal(goal_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return _get_goal_for_user(goal_id, user["email"])
+
+
+@app.put("/api/v1/goals/{goal_id}", tags=["goals"])
+def update_goal(
+    goal_id: str,
+    payload: GoalUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    goal = _get_goal_for_user(goal_id, user["email"])
+    before = dict(goal)
+
+    if payload.name is not None:
+        goal["name"] = payload.name
+    if payload.category is not None:
+        goal["category"] = payload.category
+    if payload.target_amount is not None:
+        goal["target_amount"] = payload.target_amount
+    if payload.target_currency is not None:
+        goal["target_currency"] = payload.target_currency
+    if payload.target_date is not None:
+        goal["target_date"] = payload.target_date
+    if payload.status is not None:
+        goal["status"] = payload.status
+    if payload.priority is not None:
+        goal["priority"] = payload.priority
+
+    _record_audit(
+        "goal.updated",
+        actor=user["email"],
+        resource=f"goal:{goal_id}",
+        detail="goal updated",
+        before=before,
+        after=goal,
+        reason="update goal",
+        correlation_id=secrets.token_urlsafe(12),
+    )
+    return goal
+
+
+@app.get("/api/v1/goals/{goal_id}/progress", tags=["goals"])
+def goal_progress(goal_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    goal = _get_goal_for_user(goal_id, user["email"])
+    return _calculate_goal_progress(goal, user["email"])
+
+
+@app.delete("/api/v1/goals/{goal_id}", tags=["goals"])
+def archive_goal(goal_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    goal = _get_goal_for_user(goal_id, user["email"])
+    before = dict(goal)
+    goal["status"] = "archived"
+    _record_audit(
+        "goal.archived",
+        actor=user["email"],
+        resource=f"goal:{goal_id}",
+        detail="goal archived",
+        before=before,
+        after=goal,
+        reason="archive goal",
+        correlation_id=secrets.token_urlsafe(12),
+    )
+    return {"id": goal["id"], "status": "archived", "owner_email": user["email"]}
 
 
 @app.post("/api/v1/investments", tags=["investments"], status_code=status.HTTP_201_CREATED)
 def create_investment(
     payload: InvestmentCreateRequest,
     user: dict[str, Any] = Depends(_get_current_user),
+    response: Response = None,
 ) -> dict[str, Any]:
+    if payload.idempotency_key:
+        existing = next(
+            (
+                investment for investment in _INVESTMENTS
+                if investment["owner_email"] == user["email"]
+                and investment.get("idempotency_key") == payload.idempotency_key
+            ),
+            None,
+        )
+        if existing is not None:
+            response.status_code = status.HTTP_200_OK
+            return existing
+
+    if payload.goal_id is not None:
+        goal = next(
+            (
+                goal
+                for goal in _GOALS
+                if goal["id"] == payload.goal_id and goal["owner_email"] == user["email"]
+            ),
+            None,
+        )
+        if goal is None:
+            raise HTTPException(status_code=404, detail="Goal not found")
+
+    current_asset_value = Decimal(str(payload.units)) * Decimal(str(payload.unit_value))
+    gain_loss = current_asset_value - Decimal(str(payload.amount_invested))
+
     investment = {
         "id": str(len(_INVESTMENTS) + 1),
         "name": payload.name,
@@ -734,6 +1068,10 @@ def create_investment(
         "valuation_source": payload.valuation_source,
         "valuation_timestamp": payload.valuation_timestamp,
         "owner_email": user["email"],
+        "goal_id": payload.goal_id,
+        "idempotency_key": payload.idempotency_key,
+        "current_asset_value": float(current_asset_value),
+        "gain_loss": float(gain_loss),
     }
     _INVESTMENTS.append(investment)
     return investment
@@ -743,6 +1081,42 @@ def create_investment(
 def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
     return {"investments": owner_investments}
+
+
+@app.get("/api/v1/investments/summary", tags=["investments"])
+def investment_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+    owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
+    total_invested = sum(float(investment["amount_invested"]) for investment in owner_investments)
+    current_value = sum(float(investment["current_asset_value"]) for investment in owner_investments)
+    return {
+        "total_invested": total_invested,
+        "current_value": current_value,
+        "gain_loss": current_value - total_invested,
+    }
+
+
+@app.get("/api/v1/investments/allocations", tags=["investments"])
+def investment_allocations(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+    owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
+    if not owner_investments:
+        return {"allocations": []}
+
+    totals_by_class: dict[str, float] = {}
+    for investment in owner_investments:
+        asset_class = investment["asset_class"]
+        totals_by_class[asset_class] = totals_by_class.get(asset_class, 0.0) + float(investment["current_asset_value"])
+
+    total_value = sum(totals_by_class.values())
+    allocations = []
+    for asset_class in sorted(totals_by_class):
+        weight = (totals_by_class[asset_class] / total_value * 100) if total_value else 0.0
+        allocations.append({
+            "asset_class": asset_class,
+            "current_value": totals_by_class[asset_class],
+            "weight_pct": round(weight, 2),
+        })
+
+    return {"allocations": allocations}
 
 
 @app.post("/api/v1/insurance/policies", tags=["insurance"], status_code=status.HTTP_201_CREATED)
