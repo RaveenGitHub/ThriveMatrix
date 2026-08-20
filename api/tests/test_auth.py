@@ -200,3 +200,62 @@ def test_authorization_failures_are_audited() -> None:
         event["event"] == "auth.denied" or event["event"] == "authorization.denied"
         for event in admin_logs.json()["events"]
     )
+
+
+def test_audit_records_capture_change_context() -> None:
+    email = f"audit-trace-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()["access_token"]
+
+    client.post(
+        "/api/v1/goals",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Emergency cushion",
+            "category": "safety",
+            "target_amount": 25000,
+            "target_currency": "INR",
+            "target_date": "2027-12-31",
+            "status": "active",
+            "priority": "high",
+        },
+    )
+
+    admin_email = f"audit-admin-{uuid.uuid4()}@example.com"
+    admin_password = "StrongPass!123"
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": admin_email, "password": admin_password, "role": "admin"},
+    )
+    admin_token = client.post(
+        "/api/v1/auth/login",
+        json={"email": admin_email, "password": admin_password},
+    ).json()["access_token"]
+
+    logs = client.get(
+        "/api/v1/audit/logs",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ).json()["events"]
+
+    goal_event = next(
+        (
+            event
+            for event in reversed(logs)
+            if event.get("event") == "goal.created" and event.get("actor") == email
+        ),
+        None,
+    )
+    assert goal_event is not None
+    assert goal_event["actor"] == email
+    assert goal_event["resource"].startswith("goal:")
+    assert "correlation_id" in goal_event and bool(goal_event["correlation_id"])
+    assert "before" in goal_event and "after" in goal_event
+    assert "reason" in goal_event and bool(goal_event["reason"])
+    assert "timestamp" in goal_event and bool(goal_event["timestamp"])

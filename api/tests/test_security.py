@@ -15,6 +15,9 @@ def test_security_headers_are_present() -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+    assert "content-security-policy" in response.headers
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
 def test_sensitive_fields_are_redacted() -> None:

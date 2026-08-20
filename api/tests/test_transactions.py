@@ -87,3 +87,105 @@ def test_users_only_see_their_own_transactions() -> None:
     )
     assert bob_list.status_code == 200
     assert all(item["owner_email"] == bob for item in bob_list.json()["transactions"])
+
+
+def test_statement_upload_accepts_supported_statement_files_and_quarantines_original() -> None:
+    email = f"statement-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.post(
+        "/api/v1/transactions/upload",
+        files={"file": ("statement.pdf", b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "validated"
+    assert payload["owner_email"] == email
+    assert payload["storage"]["private"] is True
+    assert payload["storage"]["location"].startswith("quarantine/")
+    assert payload["job"]["status"] in {"queued", "validated"}
+
+
+def test_statement_upload_rejects_unsupported_or_malicious_files() -> None:
+    email = f"statement-invalid-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    bad_extension = client.post(
+        "/api/v1/transactions/upload",
+        files={"file": ("invoice.exe", b"MZ\x90\x00\x03\x00\x00\x00", "application/x-msdownload")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert bad_extension.status_code == 400
+
+    malicious_pdf = client.post(
+        "/api/v1/transactions/upload",
+        files={"file": ("statement.pdf", b"MZ\x90\x00\x03\x00\x00\x00", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert malicious_pdf.status_code == 400
+
+
+def test_transaction_review_normalizes_and_deduplicates_import_rows() -> None:
+    email = f"review-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.post(
+        "/api/v1/transactions/review",
+        json={
+            "source_name": "HDFC Bank",
+            "records": [
+                {"date": "2026-08-01", "description": "  salary  ", "amount": "85000.00", "type": "credit"},
+                {"date": "2026-08-01", "description": "Salary", "amount": 85000, "type": "credit"},
+                {"date": "2026-08-02", "description": "Groceries", "amount": "3500.50", "type": "debit"},
+            ],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted_count"] == 2
+    assert payload["duplicate_count"] == 1
+    assert payload["transactions"][0]["description"] == "salary"
+    assert payload["transactions"][1]["description"] == "groceries"
+
+
+def test_transaction_summary_and_category_aggregation_are_available() -> None:
+    email = f"summary-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Sample Bank",
+            "records": [
+                {"date": "2026-08-01", "description": "Salary", "amount": 85000, "type": "credit"},
+                {"date": "2026-08-02", "description": "Freelance project", "amount": 15000, "type": "credit"},
+                {"date": "2026-08-03", "description": "Rent", "amount": 22000, "type": "debit"},
+                {"date": "2026-08-04", "description": "Groceries", "amount": 3500, "type": "debit"},
+            ],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    summary = client.get(
+        "/api/v1/transactions/summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["income_total"] == 100000.0
+    assert payload["expense_total"] == 25500.0
+    assert payload["net_total"] == 74500.0
+    assert payload["savings_rate"] > 0
+
+    categories = client.get(
+        "/api/v1/transactions/categories",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert categories.status_code == 200
+    category_payload = categories.json()
+    assert any(item["category"] == "salary" for item in category_payload["categories"])
+    assert any(item["category"] == "housing" for item in category_payload["categories"])
