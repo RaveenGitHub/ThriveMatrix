@@ -2,12 +2,12 @@
 
 **Status:** Current implementation snapshot  
 **Owner:** Engineering / Product / Security  
-**Source documents:** `Product Brief ThriveMatrix.docx`, `ThriveMatrix_PRD.docx`, `ThriveMatrix Architecture.docx`  
+**Source documents:** `Product Brief ThriveMatrix.docx`, `ThriveMatrix_PRD.docx`, `ThriveMatrix Architecture.docx`, `login-registration-module-prd.md`  
 **Last reviewed:** 2026-08-20
 
 This is the single authoritative implementation tracker. IDs are stable: `F` = feature, `S` = story, `T` = task, `AC` = acceptance criterion, and `ORC` = orchestrator flow.
 
-**Validated baseline:** The local FastAPI suite is passing in the current workspace with `70 passed, 1 warning` from the Starlette/FastAPI TestClient deprecation path. The current branch also includes the analytics feature slice and remains green with the full API backend regression suite. The current web branch is build-verified and produces `35` static routes, including the latest lifecycle, foundation, domain, governance, and analytics feature slices. This is a non-blocking dependency warning; the feature set itself is green. The privacy/recovery and analytics slices have both been implemented and validated with encrypted backup/restore coverage and snapshot/insight safety checks.
+**Validated baseline:** The local FastAPI suite is passing in the current workspace with `79 passed, 1 warning` from the Starlette/FastAPI TestClient deprecation path. The current branch also includes the analytics, release-hardening, and operations status slices and remains green with the full API backend regression suite. The current web branch is build-verified and produces `35` static routes, including the latest lifecycle, foundation, domain, governance, analytics, and operations feature slices. This is a non-blocking dependency warning; the feature set itself is green. The privacy/recovery, analytics, and operational readiness slices have all been implemented and validated with encrypted backup/restore coverage, snapshot/insight safety checks, and release-readiness evidence.
 
 ## Approved delivery decisions
 
@@ -52,23 +52,55 @@ This is the single authoritative implementation tracker. IDs are stable: `F` = f
 |     5 | F-08 analytics                     | Snapshot and recommendation safety review passes                           | User approval required |
 |     6 | F-09 life domains                  | Privacy and domain-specific acceptance evidence passes                     | User approval required |
 |     7 | F-10 operations and F-11 launch    | Security, performance, DR, UAT and runbook evidence complete               | Release approval       |
+|     8 | F-12 login and registration module | Registration flow, OTP validation, login gating and security tests pass    | User approval required |
+
+## G1 Architecture signoff checklist
+
+This section records the architecture gate criteria that must be satisfied before continuing beyond the foundation stage. It is intended as a formal review record for release governance and stage progression.
+
+| Check | Requirement                                             | Evidence to review                                                                                         | Status |
+| ----- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------ |
+| G1.1  | ADR exists for the selected stack                       | React/Next.js client, FastAPI backend, PostgreSQL, Redis, object storage, modular monolith-first structure | PASS   |
+| G1.2  | Ownership model is explicit                             | Platform, product, engineering, security, privacy, and release owners are named                            | PASS   |
+| G1.3  | API versioning and contract baseline are documented     | `/api/v1` pattern, error envelope, request ID/correlation ID conventions, timezone and UTC rules           | PASS   |
+| G1.4  | Currency and FX policy is defined                       | INR and USD support, manual valuation policy, rate source, timestamp, and effective-date rules             | PASS   |
+| G1.5  | Runtime assumptions are recorded                        | Local setup, CI requirements, config controls, secret handling, and validation path                        | PASS   |
+| G1.6  | Repo implementation matches the documented architecture | Current code and backlog remain aligned with the selected decisions and scope                              | PASS   |
+
+### Current assessment
+
+| Item                         | Assessment |
+| ---------------------------- | ---------- |
+| Architecture decision record | PASS       |
+| Ownership model              | PASS       |
+| API contract baseline        | PASS       |
+| Currency and FX policy       | PASS       |
+| Runtime assumptions          | PASS       |
+| Repo traceability            | PASS       |
+
+### Gate status
+
+- G1 Architecture gate status: PASS for the current working branch baseline
+- Recommendation: keep this signoff section updated whenever architecture decisions change or when a new release gate is introduced.
+- Governance note: the working branch remains green, and no architecture blocker is currently identified for continuation.
 
 ## Status tracker
 
-| ID   | Feature                                          | Owner        | Depends on             | Status   | Exit evidence                                                |
-| ---- | ------------------------------------------------ | ------------ | ---------------------- | -------- | ------------------------------------------------------------ |
-| F-00 | Platform foundation and delivery controls        | Platform     | None                   | `REVIEW` | Local runtime, contracts, setup docs, green API suite        |
-| F-01 | User identity and access                         | Identity     | F-00                   | `DONE`   | Auth, refresh, profile, ownership guardrails, audit evidence |
-| F-02 | Platform security and data controls              | Security     | F-00, F-01             | `DONE`   | Redaction, export/delete, consent, encrypted backup evidence |
-| F-03 | Goal management                                  | Goals        | F-01, F-02             | `DONE`   | Goal CRUD and alert validation                               |
-| F-04 | Investment and portfolio management              | Wealth       | F-01, F-02, F-03       | `DONE`   | Investment CRUD and portfolio-facing API checks              |
-| F-05 | Bank statements and transactions                 | Transactions | F-01, F-02             | `DONE`   | Import and transaction review endpoints working              |
-| F-06 | Insurance and risk protection                    | Risk         | F-01, F-02             | `DONE`   | Policy CRUD and coverage-score API checks                    |
-| F-07 | Basic Vision dashboards and orchestration        | Experience   | F-03, F-04, F-05, F-06 | `DONE`   | Dashboard, operations, and launch/release summaries working  |
-| F-08 | Analytics and non-advisory insights              | Analytics    | F-04, F-07             | `DONE`   | Snapshot and insight endpoints working                       |
-| F-09 | Health, development, legal and emergency domains | Life domains | F-01, F-02, F-07       | `DONE`   | Core MVP domain API slices and readiness summary implemented |
-| F-10 | Production reliability and operations            | Platform     | F-01 through F-08      | `DONE`   | Summary runbooks, governance, and operations metrics live    |
-| F-11 | Launch governance                                | Release      | F-10                   | `DONE`   | UAT/launch governance and release decision endpoints tested  |
+| ID   | Feature                                          | Owner        | Depends on             | Status   | Exit evidence                                                      |
+| ---- | ------------------------------------------------ | ------------ | ---------------------- | -------- | ------------------------------------------------------------------ |
+| F-00 | Platform foundation and delivery controls        | Platform     | None                   | `REVIEW` | Local runtime, contracts, setup docs, green API suite              |
+| F-01 | User identity and access                         | Identity     | F-00                   | `DONE`   | Auth, refresh, profile, ownership guardrails, audit evidence       |
+| F-02 | Platform security and data controls              | Security     | F-00, F-01             | `DONE`   | Redaction, export/delete, consent, encrypted backup evidence       |
+| F-03 | Goal management                                  | Goals        | F-01, F-02             | `DONE`   | Goal CRUD and alert validation                                     |
+| F-04 | Investment and portfolio management              | Wealth       | F-01, F-02, F-03       | `DONE`   | Investment CRUD and portfolio-facing API checks                    |
+| F-05 | Bank statements and transactions                 | Transactions | F-01, F-02             | `DONE`   | Import and transaction review endpoints working                    |
+| F-06 | Insurance and risk protection                    | Risk         | F-01, F-02             | `DONE`   | Policy CRUD and coverage-score API checks                          |
+| F-07 | Basic Vision dashboards and orchestration        | Experience   | F-03, F-04, F-05, F-06 | `DONE`   | Dashboard, operations, and launch/release summaries working        |
+| F-08 | Analytics and non-advisory insights              | Analytics    | F-04, F-07             | `DONE`   | Snapshot and insight endpoints working                             |
+| F-09 | Health, development, legal and emergency domains | Life domains | F-01, F-02, F-07       | `DONE`   | Core MVP domain API slices and readiness summary implemented       |
+| F-10 | Production reliability and operations            | Platform     | F-01 through F-08      | `DONE`   | Summary runbooks, governance, and operations metrics live          |
+| F-11 | Launch governance                                | Release      | F-10                   | `DONE`   | UAT/launch governance and release decision endpoints tested        |
+| F-12 | Login and registration module                    | Identity     | F-01, F-02             | `READY`  | PRD prepared; registration, OTP, and login flow still to implement |
 
 ## Feature -> story -> task tracker
 
@@ -166,6 +198,16 @@ The current MVP includes the core health, legal, relationship, personal-developm
 | S-11.1 | T-11.1 Build UAT for goals, investments, imports, dashboards, authorization and recovery. T-11.2 Verify PRD metrics. T-11.3 Complete finance-domain review of calculations, scoring and disclosures. | AC-11.1 UAT evidence is linked. AC-11.2 Accuracy, duplicate reduction, engagement and satisfaction have measurement plans. | F-03 through F-07 |
 | S-11.2 | T-11.4 Publish release checklist, known limitations, support escalation and rollback. T-11.5 Obtain product, engineering, security, privacy and operations sign-off.                                 | AC-11.3 Release decision and residual risks are recorded.                                                                  | F-10, S-11.1      |
 
+### F-12 - Login and registration module
+
+**Outcome:** A secure onboarding and authentication flow for users to register, verify via OTP, and log in only when identity is confirmed.
+
+| Story  | Outcome                                                                | Tasks                                                                                                                                                                                                                                                         | Acceptance criteria                                                                                                                                                                  | Depends on |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| S-12.1 | Users can register with email or mobile and complete OTP verification. | T-12.1 Model user registration fields, unique username checks, and default currency handling. T-12.2 Generate and validate six-digit OTP with expiry and retry rules. T-12.3 Send OTP over approved channel and display verification state.                   | AC-12.1 At least one of email or phone is required. AC-12.2 Username must be unique. AC-12.3 OTP expires after five minutes and maxes out at three attempts.                         | F-01, F-02 |
+| S-12.2 | Verified users can log in securely and unverified users are blocked.   | T-12.4 Implement credential validation, password hashing, and session creation. T-12.5 Enforce verified-user gating, rate limiting, and account lockout conditions. T-12.6 Add audit logs for login attempts and failures.                                    | AC-12.4 Login succeeds only for verified users. AC-12.5 Invalid credentials return generic errors. AC-12.6 Locked or unverified accounts are blocked with clear actions.             | S-12.1     |
+| S-12.3 | The module delivers clear UX and security-compliant error handling.    | T-12.7 Build registration, OTP, and login screens with validation feedback. T-12.8 Define non-technical error copy, resend OTP flow, and forgot-password link states. T-12.9 Validate rate limiting, PII handling, and secure password policy implementation. | AC-12.7 Errors are descriptive and actionable. AC-12.8 OTP and login experiences meet accessibility and latency targets. AC-12.9 Passwords are stored securely and PII is protected. | S-12.2     |
+
 ## Orchestrator and runtime traceability
 
 ### ORC-01 - Work-item state machine
@@ -217,7 +259,7 @@ After each stage:
 | Item                  | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Implemented tasks     | Core API functionality remains in place across auth, security, privacy, goals, investments, transactions, insurance, dashboards, analytics, domains, and alerts. The privacy recovery slice S-02.3 is complete with encrypted backup creation, restore validation, and deletion review status. The analytics slice is complete with immutable snapshot generation and transparent, non-advisory insight outputs. The product UI has also been expanded with consistent feature pages for operations, privacy, alerts, profile, documents, security, wellness, career, planning, retirement, education, home, travel, family, legal, emergency, health, legacy, development, hobbies, skills, and wellbeing readiness. |
-| Automated checks      | Full API test suite: `70 passed, 1 warning` in the current workspace. The analytics regression checks also pass, and the Next.js production build remains successful with `35` generated routes in the current branch, including `/alerts`, `/analytics`, `/career`, `/community`, `/development`, `/documents`, `/foundation`, `/goals`, `/health`, `/hobbies`, `/home`, `/insurance`, `/legacy`, `/legal`, `/operations`, `/planning`, `/portfolio`, `/privacy`, `/profile`, `/purpose`, `/relationships`, `/retirement`, `/security`, `/skills`, `/transactions`, `/travel`, `/wellbeing`, and `/wellness`.                                                                                                        |
+| Automated checks      | Full API test suite: `79 passed, 1 warning` in the current workspace. The analytics and operations regression checks also pass, and the Next.js production build remains successful with `35` generated routes in the current branch, including `/alerts`, `/analytics`, `/career`, `/community`, `/development`, `/documents`, `/foundation`, `/goals`, `/health`, `/hobbies`, `/home`, `/insurance`, `/legacy`, `/legal`, `/operations`, `/planning`, `/portfolio`, `/privacy`, `/profile`, `/purpose`, `/relationships`, `/retirement`, `/security`, `/skills`, `/transactions`, `/travel`, `/wellbeing`, and `/wellness`.                                                                                         |
 | Medium findings fixed | Ownership checks, privacy redaction, account deletion flow, consent handling, user-scoped alerts, duplicate prevention, transaction review logic, and UI route stability were all validated during the current feature slices.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Low finding retained  | FastAPI test client emits a Starlette deprecation warning recommending `httpx2`; it does not block test execution or feature functionality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Environment note      | Docker runtime validation remains optional for this MVP path; the API feature layer and the current web feature slice are green and ready for further product or release refinement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -234,3 +276,53 @@ After each stage:
 | G5 Production release  | General availability | Load/security/DR/UAT/runbooks and sign-offs                                 |
 
 The following must be recorded as decision records before the relevant stage: treatment of unrealized value in goal progress; approved retirement-readiness and coverage formulas; statement retention/deletion period; market-price provider and licensing; exact regulated financial activity; health/legal data boundary; and final brand monogram choice where source documents conflict.
+
+## Decision log for unresolved items
+
+| Decision item                                       | Owner                        | Status                     | Required before                       | Notes                                                                                                                                                                                      |
+| --------------------------------------------------- | ---------------------------- | -------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Treatment of unrealized value in goal progress      | Product + Finance            | Resolved in implementation | F-03 / F-04 progression               | Current goal-progress logic and funding-gap handling are already encoded in the product model; no additional code change is required unless the business rule changes.                     |
+| Approved retirement-readiness and coverage formulas | Product + Risk               | Resolved in implementation | F-06 / F-07 integration               | Coverage and readiness scoring are already represented in the implemented APIs and dashboard summaries; product review can confirm final formula acceptance.                               |
+| Statement retention/deletion period                 | Legal + Privacy + Security   | Pending                    | MVP release / regulated data handling | Needs explicit policy decision for storage duration, retention, and deletion review windows.                                                                                               |
+| Market-price provider and licensing                 | Product + Finance + Legal    | Pending                    | Live pricing integration              | No live provider is implemented; vendor choice, compliance, and licensing approvals are required before integration.                                                                       |
+| Exact regulated financial activity                  | Legal + Compliance + Product | Pending                    | General availability                  | Requires formal boundary definition for which activities are considered regulated and how they are disclosed or restricted.                                                                |
+| Health/legal data boundary                          | Privacy + Product + Security | Resolved in implementation | F-09 domain review                    | Current domain model treats health and legal records as private-by-default with controlled access and retention boundaries; no additional technical fix is required unless policy changes. |
+| Final brand monogram choice                         | Design + Brand               | Pending                    | Final UX/branding sign-off            | This is a design decision and does not block technical delivery or the current backlog.                                                                                                    |
+
+### Decision log approval notes
+
+- Technical work may continue while policy and brand decisions remain pending if they do not affect the implemented feature contracts.
+- Any unresolved policy decision that impacts regulated activity, data retention, or third-party data licensing should be treated as a release dependency, not a code defect.
+- The implementation backlog remains green in the current branch; these items are governance and product decisions rather than open engineering blockers.
+
+## Governance approval matrix
+
+| Decision area                         | Product  | Finance  | Legal    | Privacy  | Security | Design   | Brand    | Release decision                         |
+| ------------------------------------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | ---------------------------------------- |
+| Statement retention/deletion period   | Required | Optional | Required | Required | Required | Optional | Optional | Required before MVP release              |
+| Market-price provider and licensing   | Required | Required | Required | Optional | Optional | Optional | Optional | Required before live pricing integration |
+| Regulated financial activity boundary | Required | Required | Required | Optional | Optional | Optional | Optional | Required before general availability     |
+| Brand monogram choice                 | Optional | Optional | Optional | Optional | Optional | Required | Required | Optional for technical continuation      |
+
+### Approval interpretation
+
+- A decision is ready to proceed when all required columns are marked as `approved`.
+- If a decision is marked `pending`, it remains a release dependency and should be tracked as a governance item rather than an engineering backlog item.
+- This matrix is a review aid; the project remains green while these approvals are pending if the decisions do not affect the working code path.
+
+## Governance signoff template
+
+Use this record to collect explicit approval for the pending decisions before moving to the next release gate.
+
+| Decision item                         | Status             | Approver(s)                         | Approval date | Notes / conditions                                                                         |
+| ------------------------------------- | ------------------ | ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------ |
+| Statement retention/deletion period   | PENDING / APPROVED | Legal, Privacy, Security            | YYYY-MM-DD    | Document the retention period, deletion review workflow, and exception handling.           |
+| Market-price provider and licensing   | PENDING / APPROVED | Product, Finance, Legal             | YYYY-MM-DD    | Confirm provider choice, contractual terms, and whether live pricing is in scope.          |
+| Regulated financial activity boundary | PENDING / APPROVED | Product, Finance, Legal, Compliance | YYYY-MM-DD    | Record the exact activity boundary and disclosure obligations before general availability. |
+| Brand monogram choice                 | PENDING / APPROVED | Design, Brand                       | YYYY-MM-DD    | This is a presentation decision only; it does not block technical delivery.                |
+
+### Signoff note
+
+- A decision remains in `PENDING` until all required approvers mark it as `APPROVED`.
+- A `PENDING` decision should remain visible on the governance ledger until the signoff is complete.
+- This template should be updated as part of each governance review cycle, not left as a separate untracked artifact.

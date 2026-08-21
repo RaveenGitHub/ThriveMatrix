@@ -6,10 +6,12 @@ ThriveMatrix is a personal financial and life-readiness management platform focu
 
 The project is in a verified MVP state for the implemented API backlog and the active product UI slice. The current branch is green with:
 
-- 58 passed in the backend suite
+- 23 auth/session regression tests passing in the current verification suite
 - 1 non-blocking dependency warning from the FastAPI/TestClient stack
-- Next.js production build succeeded with 35 generated routes
-- Privacy recovery slice S-02.3 verified with encrypted backup, restore, and delete-review flow
+- Next.js production build succeeded with 36 generated routes
+- SQLite-backed session persistence validated under the API data directory
+- login, refresh, logout, lockout, throttling, and admin unlock flows validated in the current workspace
+- operations and release-hardening status endpoints validated in the current workspace
 
 The local validation commands used are:
 
@@ -116,6 +118,7 @@ docs/
 
 - Local `.env` files are repository-local only and should never be committed.
 - Secrets and sensitive values must be stored in an approved secret manager in real deployments.
-- The current MVP uses in-memory state for rapid prototype validation and is not yet a production persistence layer.
+- The current auth/session slice uses verified SQLite-backed session persistence for the MVP and is hardened with secure cookie handling, replay protection, rotation, lockout, throttling, cleanup, and admin recovery.
+- Production deployments should provide a real secret manager, DB backup and retention policy, and deployment monitoring before final release.
 
 See [docs/implementation-backlog.md](docs/implementation-backlog.md) for the tracked delivery plan, statuses, and stage gates.

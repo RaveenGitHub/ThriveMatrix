@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -97,3 +98,35 @@ def test_users_only_see_their_own_policies() -> None:
     )
     assert bob_list.status_code == 200
     assert all(item["owner_email"] == bob for item in bob_list.json()["policies"])
+
+
+def test_policy_renewal_reminder_is_exposed_in_alerts() -> None:
+    email = f"insurance-renewal-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+    renewal_date = (date.today() + timedelta(days=7)).isoformat()
+
+    response = client.post(
+        "/api/v1/insurance/policies",
+        json={
+            "name": "Renewal Reminder Policy",
+            "policy_type": "health",
+            "premium_amount": 1800,
+            "coverage_amount": 600000,
+            "start_date": "2026-01-01",
+            "end_date": "2027-12-31",
+            "renewal_date": renewal_date,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["renewal_date"] == renewal_date
+
+    alerts_response = client.get(
+        "/api/v1/alerts",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert alerts_response.status_code == 200
+    assert any(alert["type"] == "policy_renewal_due" for alert in alerts_response.json()["alerts"])

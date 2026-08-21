@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ProtectedLayout } from "../protected-layout";
 
 type Investment = {
   id: number;
@@ -95,132 +96,134 @@ export default function PortfolioPage() {
   };
 
   return (
-    <main className="page-shell feature-page">
-      <header className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-mark" aria-hidden="true">
-            TM
-          </div>
-          <div>
-            <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
-            <h1>ThriveMatrix</h1>
-          </div>
-        </div>
-
-        <nav className="main-nav" aria-label="Main navigation">
-          <a href="/">Overview</a>
-          <a href="/goals">Goals</a>
-          <a href="/portfolio">Portfolio</a>
-          <a href="#">Transactions</a>
-        </nav>
-      </header>
-
-      <section className="feature-header panel">
-        <div>
-          <p className="eyebrow accent">PORTFOLIO</p>
-          <h2>Monitor allocation, gains, and balance by asset class.</h2>
-        </div>
-
-        <div className="summary-strip" aria-label="Portfolio summary">
-          <div>
-            <span className="meta-label">Total value</span>
-            <strong>{indianCurrency.format(summary.totalValue)}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Allocation mix</span>
-            <strong>{summary.totalAllocation}%</strong>
-          </div>
-          <div>
-            <span className="meta-label">Weighted gain</span>
-            <strong>{indianCurrency.format(summary.weightedGain)}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-grid">
-        <article className="panel">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">ASSET MIX</p>
-              <h3>Allocation snapshot</h3>
+    <ProtectedLayout>
+      <main className="page-shell feature-page">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-mark" aria-hidden="true">
+              TM
             </div>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={addSampleHolding}
-            >
-              + Add holding
-            </button>
+            <div>
+              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <h1>ThriveMatrix</h1>
+            </div>
           </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Asset</th>
-                  <th>Category</th>
-                  <th>Allocation</th>
-                  <th>Value</th>
-                  <th>Gain</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {investments.map((investment) => (
-                  <tr key={investment.id}>
-                    <td>{investment.name}</td>
-                    <td>{investment.category}</td>
-                    <td>{investment.allocation}%</td>
-                    <td>{indianCurrency.format(investment.value)}</td>
-                    <td className="positive">+{investment.gain}%</td>
-                    <td>
-                      <span
-                        className={`pill ${investment.status === "Strong" ? "success" : "neutral"}`}
-                      >
-                        {investment.status}
-                      </span>
-                    </td>
+          <nav className="main-nav" aria-label="Main navigation">
+            <a href="/">Overview</a>
+            <a href="/goals">Goals</a>
+            <a href="/portfolio">Portfolio</a>
+            <a href="#">Transactions</a>
+          </nav>
+        </header>
+
+        <section className="feature-header panel">
+          <div>
+            <p className="eyebrow accent">PORTFOLIO</p>
+            <h2>Monitor allocation, gains, and balance by asset class.</h2>
+          </div>
+
+          <div className="summary-strip" aria-label="Portfolio summary">
+            <div>
+              <span className="meta-label">Total value</span>
+              <strong>{indianCurrency.format(summary.totalValue)}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Allocation mix</span>
+              <strong>{summary.totalAllocation}%</strong>
+            </div>
+            <div>
+              <span className="meta-label">Weighted gain</span>
+              <strong>{indianCurrency.format(summary.weightedGain)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="feature-grid">
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">ASSET MIX</p>
+                <h3>Allocation snapshot</h3>
+              </div>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={addSampleHolding}
+              >
+                + Add holding
+              </button>
+            </div>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Category</th>
+                    <th>Allocation</th>
+                    <th>Value</th>
+                    <th>Gain</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
+                </thead>
+                <tbody>
+                  {investments.map((investment) => (
+                    <tr key={investment.id}>
+                      <td>{investment.name}</td>
+                      <td>{investment.category}</td>
+                      <td>{investment.allocation}%</td>
+                      <td>{indianCurrency.format(investment.value)}</td>
+                      <td className="positive">+{investment.gain}%</td>
+                      <td>
+                        <span
+                          className={`pill ${investment.status === "Strong" ? "success" : "neutral"}`}
+                        >
+                          {investment.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
 
-        <aside className="panel">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">PROFILE</p>
-              <h3>Portfolio posture</h3>
+          <aside className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">PROFILE</p>
+                <h3>Portfolio posture</h3>
+              </div>
             </div>
-          </div>
 
-          <div className="insight-grid single-column">
-            <div className="insight-box">
-              <span>Risk balance</span>
-              <strong>Moderate</strong>
-              <small>
-                Mix remains steady with a slight tilt to core wealth holdings.
-              </small>
+            <div className="insight-grid single-column">
+              <div className="insight-box">
+                <span>Risk balance</span>
+                <strong>Moderate</strong>
+                <small>
+                  Mix remains steady with a slight tilt to core wealth holdings.
+                </small>
+              </div>
+              <div className="insight-box">
+                <span>Liquidity</span>
+                <strong>Healthy</strong>
+                <small>
+                  Cash and short-term debt align with planned near-term
+                  commitments.
+                </small>
+              </div>
+              <div className="insight-box">
+                <span>Performance belt</span>
+                <strong>Up 6.4%</strong>
+                <small>
+                  YTD trend benchmarked against the current tracked holdings.
+                </small>
+              </div>
             </div>
-            <div className="insight-box">
-              <span>Liquidity</span>
-              <strong>Healthy</strong>
-              <small>
-                Cash and short-term debt align with planned near-term
-                commitments.
-              </small>
-            </div>
-            <div className="insight-box">
-              <span>Performance belt</span>
-              <strong>Up 6.4%</strong>
-              <small>
-                YTD trend benchmarked against the current tracked holdings.
-              </small>
-            </div>
-          </div>
-        </aside>
-      </section>
-    </main>
+          </aside>
+        </section>
+      </main>
+    </ProtectedLayout>
   );
 }
