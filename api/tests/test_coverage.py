@@ -49,6 +49,24 @@ def test_user_can_get_coverage_score() -> None:
     assert body["provider"] == "basic-vision-v1"
 
 
+def test_user_gets_explainable_coverage_gap_details() -> None:
+    email = f"coverage-gap-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.get(
+        "/api/v1/insurance/coverage-score",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["score"] == 0
+    assert body["provider"] == "basic-vision-v1"
+    assert isinstance(body["coverage_gaps"], list)
+    assert any(item["type"] == "missing_policies" for item in body["coverage_gaps"])
+    assert body["score_components"]["version"] == "basic-vision-v1"
+
+
 def test_dashboard_summary_includes_insurance_count_and_coverage_score() -> None:
     email = f"dashboard-insurance-{uuid.uuid4()}@example.com"
     token = _register_and_login(email)
