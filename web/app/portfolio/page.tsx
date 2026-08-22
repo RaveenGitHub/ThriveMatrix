@@ -1,56 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
 import { ProtectedLayout } from "../protected-layout";
 
 type Investment = {
-  id: number;
+  id: string;
   name: string;
-  category: string;
-  allocation: number;
-  value: number;
-  gain: number;
-  status: "Strong" | "Stable" | "Watch";
+  asset_class: string;
+  currency: string;
+  amount_invested: number;
+  units: number;
+  unit_value: number;
+  current_asset_value: number;
+  gain_loss: number;
 };
 
-const defaultInvestments: Investment[] = [
-  {
-    id: 1,
-    name: "Nifty Index Fund",
-    category: "Equity",
-    allocation: 32,
-    value: 780000,
-    gain: 5.4,
-    status: "Strong",
-  },
-  {
-    id: 2,
-    name: "PPF",
-    category: "Debt",
-    allocation: 22,
-    value: 530000,
-    gain: 3.1,
-    status: "Stable",
-  },
-  {
-    id: 3,
-    name: "Gold ETF",
-    category: "Commodity",
-    allocation: 16,
-    value: 390000,
-    gain: 2.7,
-    status: "Stable",
-  },
-  {
-    id: 4,
-    name: "Fixed Deposit",
-    category: "Cash",
-    allocation: 18,
-    value: 440000,
-    gain: 3.8,
-    status: "Strong",
-  },
-];
+type InvestmentSummary = {
+  total_invested: number;
+  current_value: number;
+  gain_loss: number;
+};
 
 const indianCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -59,40 +29,77 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function PortfolioPage() {
-  const [investments, setInvestments] =
-    useState<Investment[]>(defaultInvestments);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [summary, setSummary] = useState<InvestmentSummary>({
+    total_invested: 0,
+    current_value: 0,
+    gain_loss: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const summary = useMemo(() => {
-    const totalValue = investments.reduce((sum, item) => sum + item.value, 0);
-    const totalAllocation = investments.reduce(
-      (sum, item) => sum + item.allocation,
-      0,
-    );
-    const weightedGain = investments.reduce(
-      (sum, item) => sum + item.value * (item.gain / 100),
-      0,
-    );
-
-    return {
-      totalValue,
-      totalAllocation,
-      weightedGain,
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [listResponse, summaryResponse] = await Promise.all([
+          apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+          apiFetch<InvestmentSummary>("/api/v1/investments/summary"),
+        ]);
+        setInvestments(listResponse.investments ?? []);
+        setSummary(summaryResponse);
+        setError("");
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load portfolio",
+        );
+      } finally {
+        setLoading(false);
+      }
     };
-  }, [investments]);
 
-  const addSampleHolding = () => {
-    setInvestments((current) => [
-      {
-        id: Date.now(),
-        name: "Sovereign Gold Bond",
-        category: "Commodity",
-        allocation: 12,
-        value: 290000,
-        gain: 4.1,
-        status: "Watch",
-      },
-      ...current,
-    ]);
+    void loadData();
+  }, []);
+
+  const totalAllocation = useMemo(() => {
+    if (!investments.length) return 0;
+    return investments.reduce(
+      (sum, item) =>
+        sum +
+        Math.min(
+          100,
+          Math.round(
+            (item.current_asset_value / Math.max(summary.current_value, 1)) *
+              100,
+          ),
+        ),
+      0,
+    );
+  }, [investments, summary.current_value]);
+
+  const addSampleHolding = async () => {
+    try {
+      await apiFetch<Investment>("/api/v1/investments", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Sovereign Gold Bond",
+          asset_class: "commodity",
+          currency: "INR",
+          amount_invested: 290000,
+          units: 12,
+          unit_value: 24000,
+          valuation_source: "manual",
+          valuation_timestamp: new Date().toISOString(),
+        }),
+      });
+      window.location.reload();
+    } catch (addError) {
+      setError(
+        addError instanceof Error ? addError.message : "Unable to add holding",
+      );
+    }
   };
 
   return (
@@ -113,7 +120,7 @@ export default function PortfolioPage() {
             <a href="/">Overview</a>
             <a href="/goals">Goals</a>
             <a href="/portfolio">Portfolio</a>
-            <a href="#">Transactions</a>
+            <a href="/transactions">Transactions</a>
           </nav>
         </header>
 
@@ -126,15 +133,15 @@ export default function PortfolioPage() {
           <div className="summary-strip" aria-label="Portfolio summary">
             <div>
               <span className="meta-label">Total value</span>
-              <strong>{indianCurrency.format(summary.totalValue)}</strong>
+              <strong>{indianCurrency.format(summary.current_value)}</strong>
             </div>
             <div>
               <span className="meta-label">Allocation mix</span>
-              <strong>{summary.totalAllocation}%</strong>
+              <strong>{totalAllocation}%</strong>
             </div>
             <div>
               <span className="meta-label">Weighted gain</span>
-              <strong>{indianCurrency.format(summary.weightedGain)}</strong>
+              <strong>{indianCurrency.format(summary.gain_loss)}</strong>
             </div>
           </div>
         </section>
@@ -155,35 +162,56 @@ export default function PortfolioPage() {
               </button>
             </div>
 
+            {error ? (
+              <p style={{ color: "#b42318", marginBottom: 12 }}>{error}</p>
+            ) : null}
+
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Asset</th>
                     <th>Category</th>
-                    <th>Allocation</th>
                     <th>Value</th>
-                    <th>Gain</th>
-                    <th>Status</th>
+                    <th>Gain/Loss</th>
+                    <th>Invested</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {investments.map((investment) => (
-                    <tr key={investment.id}>
-                      <td>{investment.name}</td>
-                      <td>{investment.category}</td>
-                      <td>{investment.allocation}%</td>
-                      <td>{indianCurrency.format(investment.value)}</td>
-                      <td className="positive">+{investment.gain}%</td>
-                      <td>
-                        <span
-                          className={`pill ${investment.status === "Strong" ? "success" : "neutral"}`}
-                        >
-                          {investment.status}
-                        </span>
-                      </td>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5}>Loading investments…</td>
                     </tr>
-                  ))}
+                  ) : investments.length === 0 ? (
+                    <tr>
+                      <td colSpan={5}>No investments yet.</td>
+                    </tr>
+                  ) : (
+                    investments.map((investment) => (
+                      <tr key={investment.id}>
+                        <td>{investment.name}</td>
+                        <td>{investment.asset_class}</td>
+                        <td>
+                          {indianCurrency.format(
+                            investment.current_asset_value,
+                          )}
+                        </td>
+                        <td
+                          className={
+                            investment.gain_loss >= 0 ? "positive" : ""
+                          }
+                        >
+                          {investment.gain_loss >= 0 ? "+" : "-"}
+                          {indianCurrency.format(
+                            Math.abs(investment.gain_loss),
+                          )}
+                        </td>
+                        <td>
+                          {indianCurrency.format(investment.amount_invested)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -215,7 +243,10 @@ export default function PortfolioPage() {
               </div>
               <div className="insight-box">
                 <span>Performance belt</span>
-                <strong>Up 6.4%</strong>
+                <strong>
+                  {summary.gain_loss >= 0 ? "Up" : "Down"}{" "}
+                  {indianCurrency.format(Math.abs(summary.gain_loss))}
+                </strong>
                 <small>
                   YTD trend benchmarked against the current tracked holdings.
                 </small>

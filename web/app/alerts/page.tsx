@@ -1,50 +1,57 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
 import { ProtectedLayout } from "../protected-layout";
 
-const alerts = [
-  {
-    id: "A-101",
-    title: "Emergency Fund",
-    category: "Goal overdue",
-    severity: "High",
-    detail: "Target date was missed by 14 days; review funding and timeline.",
-    owner: "Goals team",
-  },
-  {
-    id: "A-204",
-    title: "Family Health Policy",
-    category: "Policy renewal",
-    severity: "Medium",
-    detail: "Renewal is due in 11 days; confirm coverage and premium budget.",
-    owner: "Risk review",
-  },
-  {
-    id: "A-318",
-    title: "Travel spend spike",
-    category: "Budget variance",
-    severity: "Medium",
-    detail: "Food and travel are 12% above the target this cycle.",
-    owner: "Finance ops",
-  },
-  {
-    id: "A-417",
-    title: "Will and nominee review",
-    category: "Legal readiness",
-    severity: "Low",
-    detail: "Nominee details require a final confirmation before audit close.",
-    owner: "Life domains",
-  },
-];
-
-const summary = [
-  { label: "Open alerts", value: "4" },
-  { label: "High priority", value: "1" },
-  { label: "Due this week", value: "2" },
-  { label: "Resolved", value: "8" },
-];
+type AlertRecord = {
+  type: string;
+  title: string;
+  message: string;
+  severity: string;
+};
 
 export default function AlertsPage() {
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loadAlerts = async () => {
+      try {
+        setLoading(true);
+        const response = await apiFetch<{ alerts: AlertRecord[] }>(
+          "/api/v1/alerts",
+        );
+        setAlerts(response.alerts ?? []);
+        setError("");
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load alerts",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadAlerts();
+  }, []);
+
+  const summary = useMemo(() => {
+    const open = alerts.length;
+    const high = alerts.filter((alert) => alert.severity === "high").length;
+    const medium = alerts.filter((alert) => alert.severity === "medium").length;
+
+    return [
+      { label: "Open alerts", value: String(open) },
+      { label: "High priority", value: String(high) },
+      { label: "Medium priority", value: String(medium) },
+      { label: "Resolved", value: "0" },
+    ];
+  }, [alerts]);
+
   return (
     <ProtectedLayout>
       <main className="page-shell feature-page">
@@ -87,6 +94,12 @@ export default function AlertsPage() {
           </div>
         </section>
 
+        {error ? (
+          <section className="panel" style={{ marginBottom: 24 }}>
+            <p style={{ color: "#b42318" }}>{error}</p>
+          </section>
+        ) : null}
+
         <section className="feature-grid">
           <article className="panel">
             <div className="section-head">
@@ -97,29 +110,28 @@ export default function AlertsPage() {
             </div>
 
             <div className="goal-list compact-list">
-              {alerts.map((alert) => (
-                <div className="goal-item" key={alert.id}>
-                  <div className="goal-topline">
-                    <strong>{alert.title}</strong>
-                    <span
-                      className={`pill ${
-                        alert.severity === "High"
-                          ? "neutral"
-                          : alert.severity === "Medium"
-                            ? "success"
-                            : "neutral"
-                      }`}
-                    >
-                      {alert.severity}
-                    </span>
+              {loading ? (
+                <div className="goal-item">Loading alerts…</div>
+              ) : alerts.length === 0 ? (
+                <div className="goal-item">No active alerts right now.</div>
+              ) : (
+                alerts.map((alert, index) => (
+                  <div className="goal-item" key={`${alert.title}-${index}`}>
+                    <div className="goal-topline">
+                      <strong>{alert.title}</strong>
+                      <span
+                        className={`pill ${alert.severity === "high" ? "neutral" : "success"}`}
+                      >
+                        {alert.severity}
+                      </span>
+                    </div>
+                    <div className="goal-details">
+                      <span>{alert.type}</span>
+                      <span>{alert.message}</span>
+                    </div>
                   </div>
-                  <div className="goal-details">
-                    <span>{alert.category}</span>
-                    <span>{alert.owner}</span>
-                  </div>
-                  <p className="alert-description">{alert.detail}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </article>
 
@@ -132,24 +144,19 @@ export default function AlertsPage() {
             </div>
 
             <ul className="activity-list">
-              <li>
-                <span>1. Resolve overdue funding gap in emergency fund.</span>
-              </li>
-              <li>
-                <span>
-                  2. Confirm family health renewal and premium approval.
-                </span>
-              </li>
-              <li>
-                <span>
-                  3. Review spending variance before next close cycle.
-                </span>
-              </li>
-              <li>
-                <span>
-                  4. Finalize legal nominee validation and archive evidence.
-                </span>
-              </li>
+              {alerts.length === 0 ? (
+                <li>
+                  <span>No high-priority tasks are currently open.</span>
+                </li>
+              ) : (
+                alerts.slice(0, 4).map((alert, index) => (
+                  <li key={`${alert.title}-focus-${index}`}>
+                    <span>
+                      {index + 1}. {alert.message}
+                    </span>
+                  </li>
+                ))
+              )}
             </ul>
           </aside>
         </section>

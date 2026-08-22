@@ -15,10 +15,30 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.db import (
+    ensure_auth_sessions_table,
+    ensure_database_ready,
+    ensure_migration_bootstrap_tables,
+    get_database_url,
+    get_engine,
+    normalize_db_datetime,
+    uses_mysql,
+)
+from app.services.auth_service import AuthService
 
 app = FastAPI(title="ThriveMatrix API", version="0.1.0", docs_url="/docs")
 security = HTTPBearer(auto_error=False)
+auth_service = AuthService()
+
+
+@app.on_event("startup")
+def startup_db_checks() -> None:
+    ensure_database_ready()
+    ensure_auth_sessions_table()
+    ensure_migration_bootstrap_tables()
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -98,25 +118,7 @@ SESSION_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "thrivematrix_s
 
 
 def _ensure_session_store() -> None:
-    SESSION_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(SESSION_DB_PATH) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS auth_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_email TEXT NOT NULL,
-                role TEXT NOT NULL,
-                access_token_hash TEXT,
-                refresh_token_hash TEXT,
-                access_expires_at TEXT,
-                refresh_expires_at TEXT,
-                status TEXT NOT NULL DEFAULT 'active',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.commit()
+    ensure_auth_sessions_table()
 
 
 _ensure_session_store()
@@ -573,14 +575,7 @@ def _record_audit(
 
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
-    password_salt = salt or secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        password_salt.encode("utf-8"),
-        100_000,
-    )
-    return password_salt, digest.hex()
+    return auth_service.hash_password(password, salt)
 
 
 def _validate_email(email: str) -> bool:
@@ -649,12 +644,21 @@ def _cleanup_expired_sessions() -> None:
             _USED_REFRESH_TOKENS.add(refresh_hash)
 
     _ensure_session_store()
-    with sqlite3.connect(SESSION_DB_PATH) as conn:
-        conn.execute(
-            "UPDATE auth_sessions SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE access_expires_at <= ? OR refresh_expires_at <= ?",
-            (now.isoformat(), now.isoformat()),
-        )
-        conn.commit()
+    if uses_mysql():
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE auth_sessions SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE access_expires_at <= :expires_at OR refresh_expires_at <= :expires_at"
+                ),
+                {"status": "expired", "expires_at": now.isoformat()},
+            )
+    else:
+        with sqlite3.connect(SESSION_DB_PATH) as conn:
+            conn.execute(
+                "UPDATE auth_sessions SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE access_expires_at <= ? OR refresh_expires_at <= ?",
+                (now.isoformat(), now.isoformat()),
+            )
+            conn.commit()
 
 
 def _hash_token_value(token: str) -> str:
@@ -670,40 +674,74 @@ def _record_session_in_store(
     refresh_expires_at: str,
 ) -> None:
     _ensure_session_store()
-    with sqlite3.connect(SESSION_DB_PATH) as conn:
-        conn.execute(
-            """
-            INSERT INTO auth_sessions (
-                user_email,
-                role,
-                access_token_hash,
-                refresh_token_hash,
-                access_expires_at,
-                refresh_expires_at,
-                status,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
-            """,
-            (
-                user_email,
-                role,
-                hashlib.sha256(access_token.encode("utf-8")).hexdigest(),
-                refresh_token_hash,
-                access_expires_at,
-                refresh_expires_at,
-            ),
-        )
-        conn.commit()
+    if uses_mysql():
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO auth_sessions (
+                        user_email,
+                        role,
+                        access_token_hash,
+                        refresh_token_hash,
+                        access_expires_at,
+                        refresh_expires_at,
+                        status,
+                        updated_at
+                    ) VALUES (:user_email, :role, :access_token_hash, :refresh_token_hash, :access_expires_at, :refresh_expires_at, 'active', CURRENT_TIMESTAMP)
+                    """
+                ),
+                {
+                    "user_email": user_email,
+                    "role": role,
+                    "access_token_hash": hashlib.sha256(access_token.encode("utf-8")).hexdigest(),
+                    "refresh_token_hash": refresh_token_hash,
+                    "access_expires_at": normalize_db_datetime(access_expires_at),
+                    "refresh_expires_at": normalize_db_datetime(refresh_expires_at),
+                },
+            )
+    else:
+        with sqlite3.connect(SESSION_DB_PATH) as conn:
+            conn.execute(
+                """
+                INSERT INTO auth_sessions (
+                    user_email,
+                    role,
+                    access_token_hash,
+                    refresh_token_hash,
+                    access_expires_at,
+                    refresh_expires_at,
+                    status,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+                """,
+                (
+                    user_email,
+                    role,
+                    hashlib.sha256(access_token.encode("utf-8")).hexdigest(),
+                    refresh_token_hash,
+                    access_expires_at,
+                    refresh_expires_at,
+                ),
+            )
+            conn.commit()
 
 
 def _revoke_session_records_for_user(email: str) -> None:
     _ensure_session_store()
-    with sqlite3.connect(SESSION_DB_PATH) as conn:
-        conn.execute(
-            "UPDATE auth_sessions SET status = 'revoked', updated_at = CURRENT_TIMESTAMP WHERE user_email = ?",
-            (email,),
-        )
-        conn.commit()
+    if uses_mysql():
+        with get_engine().begin() as conn:
+            conn.execute(
+                text("UPDATE auth_sessions SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE user_email = :email"),
+                {"status": "revoked", "email": email},
+            )
+    else:
+        with sqlite3.connect(SESSION_DB_PATH) as conn:
+            conn.execute(
+                "UPDATE auth_sessions SET status = 'revoked', updated_at = CURRENT_TIMESTAMP WHERE user_email = ?",
+                (email,),
+            )
+            conn.commit()
 
 
 def _issue_tokens(email: str, role: str) -> dict[str, str]:
@@ -1010,7 +1048,7 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
     user_status = "pending_verification" if verification_required else "active"
     user_verified = not verification_required
 
-    _USERS[user_email] = {
+    user_record = {
         "email": user_email,
         "phone": phone,
         "username": username,
@@ -1025,6 +1063,8 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
         "otp_attempts": 0,
         "failed_login_attempts": 0,
     }
+    auth_service.user_repository.create_user(user_record)
+    _USERS[user_email] = user_record
 
     return {
         "user": {"email": user_email, "username": username, "role": payload.role},
@@ -1083,8 +1123,7 @@ def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
     if user.get("status") in {"pending_verification", "unverified"}:
         raise HTTPException(status_code=401, detail="Account not verified")
 
-    _, expected_hash = _hash_password(payload.password, user["password_salt"])
-    if not hmac.compare_digest(expected_hash, user["password_hash"]):
+    if not auth_service.user_can_login(user, payload.password):
         failed_attempts = int(user.get("failed_login_attempts", 0)) + 1
         user["failed_login_attempts"] = failed_attempts
 
@@ -1099,7 +1138,28 @@ def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
 
     user["failed_login_attempts"] = 0
     _invalidate_user_sessions(user["email"])
-    tokens = _issue_tokens(user["email"], user["role"])
+    tokens = auth_service.issue_tokens(user["email"], user["role"])
+    access_token = tokens["access_token"]
+    refresh_hash = _hash_token_value(tokens["refresh_token"])
+
+    _ACCESS_TOKENS[access_token] = {
+        "email": user["email"],
+        "role": user["role"],
+        "expires_at": tokens["access_token_expires_at"],
+        "session_closed": False,
+    }
+    _REFRESH_TOKENS[refresh_hash] = {
+        "email": user["email"],
+        "role": user["role"],
+        "expires_at": tokens["refresh_token_expires_at"],
+    }
+    _SESSION_TOKENS[access_token] = {
+        "email": user["email"],
+        "role": user["role"],
+        "expires_at": tokens["access_token_expires_at"],
+        "terminated": False,
+    }
+    _record_session_in_store(user["email"], user["role"], access_token, refresh_hash, tokens["access_token_expires_at"], tokens["refresh_token_expires_at"])
 
     response.set_cookie(
         key="tm_access_token",

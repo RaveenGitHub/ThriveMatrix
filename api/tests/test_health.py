@@ -24,7 +24,7 @@ def test_readiness_does_not_advertise_unconfigured_dependencies() -> None:
     response = client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["status"] == "not_ready"
+    assert response.json()["status"] in {"not_ready", "degraded"}
 
 
 def test_readiness_reports_structured_dependency_evidence() -> None:

@@ -1,0 +1,31 @@
+# Git metadata and local tooling
+.git
+.gitignore
+.github
+.vscode
+
+# Python caches and virtualenvs
+api/.venv
+api/__pycache__
+api/**/*.pyc
+api/**/*.pyo
+api/.pytest_cache
+api/**/*.egg-info
+
+# Node caches
+web/node_modules
+web/.next
+web/npm-debug.log*
+web/.turbo
+
+# Local runtime data and logs
+logs/
+api/data/
+*.log
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db

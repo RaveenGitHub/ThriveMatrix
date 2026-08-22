@@ -1,23 +1,130 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
 import { ProtectedLayout } from "../protected-layout";
 
-const readinessChecks = [
-  { id: "G1", label: "Architecture", state: "Approved" },
-  { id: "G2", label: "Security foundation", state: "Approved" },
-  { id: "G3", label: "Domain validation", state: "Approved" },
-  { id: "G4", label: "Dashboard readiness", state: "Review" },
-  { id: "G5", label: "Release governance", state: "Review" },
-];
+type OperationsSummary = {
+  status: string;
+  dependencies: Record<string, string>;
+  metrics: {
+    audit_event_count: number;
+    user_count: number;
+    goal_count: number;
+    investment_count: number;
+    policy_count: number;
+  };
+};
 
-const runbook = [
-  "Verify backup health and restore checkpoints.",
-  "Check data export accessibility and account-deletion review path.",
-  "Review pending alerts and trigger-specific mitigation workflows.",
-  "Confirm security and privacy review sign-offs are recorded.",
-];
+type RecoveryStatus = {
+  status: string;
+  rto_minutes: number;
+  rpo_minutes: number;
+  failover: {
+    status: string;
+    strategy: string;
+    trigger: string;
+  };
+  dlq: {
+    status: string;
+    pending_count: number;
+    retry_policy: string;
+  };
+  graceful_degradation: {
+    status: string;
+    mode: string;
+  };
+  runbook: Array<{ step: string; owner: string }>;
+};
+
+type SecurityReview = {
+  status: string;
+  checks: Array<{ name: string; status: string; owner: string }>;
+  findings: Array<{ severity: string; title: string; status: string }>;
+  release_gate: { blocking: boolean; policy: string };
+};
+
+type LaunchGovernance = {
+  status: string;
+  checklist: Array<{ id: string; name: string; status: string }>;
+  signoffs: Record<string, string>;
+};
+
+type ReleaseRunbook = {
+  status: string;
+  rollback: Array<{ step: string; owner: string }>;
+  support: { escalation: string; runbook: string };
+};
 
 export default function OperationsPage() {
+  const [summary, setSummary] = useState<OperationsSummary | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
+  const [securityReview, setSecurityReview] = useState<SecurityReview | null>(
+    null,
+  );
+  const [launchGovernance, setLaunchGovernance] =
+    useState<LaunchGovernance | null>(null);
+  const [releaseRunbook, setReleaseRunbook] = useState<ReleaseRunbook | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loadOperations = async () => {
+      try {
+        setLoading(true);
+        const [
+          summaryResponse,
+          recoveryResponse,
+          securityResponse,
+          launchResponse,
+          runbookResponse,
+        ] = await Promise.all([
+          apiFetch<OperationsSummary>("/api/v1/operations/summary"),
+          apiFetch<RecoveryStatus>("/api/v1/operations/recovery"),
+          apiFetch<SecurityReview>("/api/v1/operations/security-review"),
+          apiFetch<LaunchGovernance>("/api/v1/launch/governance"),
+          apiFetch<ReleaseRunbook>("/api/v1/release/runbook"),
+        ]);
+
+        setSummary(summaryResponse);
+        setRecovery(recoveryResponse);
+        setSecurityReview(securityResponse);
+        setLaunchGovernance(launchResponse);
+        setReleaseRunbook(runbookResponse);
+        setError("");
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load operations status",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadOperations();
+  }, []);
+
+  const readinessChecks = useMemo(
+    () =>
+      launchGovernance?.checklist ?? [
+        { id: "G1", name: "Architecture", status: "pending" },
+        { id: "G2", name: "Security foundation", status: "pending" },
+      ],
+    [launchGovernance],
+  );
+
+  const runbookSteps = useMemo(
+    () =>
+      releaseRunbook?.rollback ?? [
+        { step: "No rollback steps available.", owner: "ops" },
+      ],
+    [releaseRunbook],
+  );
+
   return (
     <ProtectedLayout>
       <main className="page-shell feature-page">
@@ -52,18 +159,26 @@ export default function OperationsPage() {
           <div className="summary-strip" aria-label="Operations summary">
             <div>
               <span className="meta-label">System status</span>
-              <strong>Stable</strong>
+              <strong>
+                {loading ? "Loading" : (summary?.status ?? "unknown")}
+              </strong>
             </div>
             <div>
-              <span className="meta-label">Open reviews</span>
-              <strong>2</strong>
+              <span className="meta-label">Recovery</span>
+              <strong>{recovery?.status ?? "unknown"}</strong>
             </div>
             <div>
-              <span className="meta-label">Runbook</span>
-              <strong>Ready</strong>
+              <span className="meta-label">Release gate</span>
+              <strong>{securityReview?.status ?? "unknown"}</strong>
             </div>
           </div>
         </section>
+
+        {error ? (
+          <section className="panel" style={{ marginBottom: 24 }}>
+            <p style={{ color: "#b42318" }}>{error}</p>
+          </section>
+        ) : null}
 
         <section className="feature-grid">
           <article className="panel">
@@ -74,19 +189,23 @@ export default function OperationsPage() {
               </div>
             </div>
 
-            <div className="governance-list">
-              {readinessChecks.map((item) => (
-                <div className="governance-item" key={item.id}>
-                  <span>{item.id}</span>
-                  <strong>{item.label}</strong>
-                  <span
-                    className={`pill ${item.state === "Approved" ? "success" : "neutral"}`}
-                  >
-                    {item.state}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {loading ? (
+              <div className="governance-list">Loading launch status…</div>
+            ) : (
+              <div className="governance-list">
+                {readinessChecks.map((item) => (
+                  <div className="governance-item" key={item.id}>
+                    <span>{item.id}</span>
+                    <strong>{item.name}</strong>
+                    <span
+                      className={`pill ${item.status === "approved" ? "success" : "neutral"}`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </article>
 
           <aside className="panel">
@@ -97,14 +216,80 @@ export default function OperationsPage() {
               </div>
             </div>
 
-            <ul className="activity-list">
-              {runbook.map((step) => (
-                <li key={step}>
-                  <span>{step}</span>
+            {loading ? (
+              <ul className="activity-list">
+                <li>
+                  <span>Loading runbook…</span>
                 </li>
-              ))}
-            </ul>
+              </ul>
+            ) : (
+              <ul className="activity-list">
+                {runbookSteps.map((step) => (
+                  <li key={`${step.owner}-${step.step}`}>
+                    <span>{step.step}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </aside>
+        </section>
+
+        <section className="content-grid">
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">RECOVERY</p>
+                <h3>Business continuity</h3>
+              </div>
+            </div>
+
+            {loading || !recovery ? (
+              <div className="insight-box">Loading recovery plan…</div>
+            ) : (
+              <div className="insight-grid single-column">
+                <div className="insight-box">
+                  <span>Recovery status</span>
+                  <strong>{recovery.status}</strong>
+                  <small>{recovery.failover.strategy}</small>
+                </div>
+                <div className="insight-box">
+                  <span>RTO / RPO</span>
+                  <strong>
+                    {recovery.rto_minutes} / {recovery.rpo_minutes} mins
+                  </strong>
+                  <small>{recovery.failover.trigger}</small>
+                </div>
+                <div className="insight-box">
+                  <span>DLQ</span>
+                  <strong>{recovery.dlq.status}</strong>
+                  <small>{recovery.dlq.pending_count} pending items</small>
+                </div>
+              </div>
+            )}
+          </article>
+
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">SECURITY</p>
+                <h3>Release gate</h3>
+              </div>
+            </div>
+
+            {loading || !securityReview ? (
+              <div className="insight-box">Loading security review…</div>
+            ) : (
+              <div className="insight-grid single-column">
+                {securityReview.checks.slice(0, 3).map((check) => (
+                  <div className="insight-box" key={check.name}>
+                    <span>{check.name}</span>
+                    <strong>{check.status}</strong>
+                    <small>{check.owner}</small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </article>
         </section>
       </main>
     </ProtectedLayout>

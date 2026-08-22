@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { apiFetch } from "../lib/api";
 
 type SessionStatus = {
   status: string;
@@ -39,21 +40,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await fetch(
-        "http://localhost:8000/api/v1/auth/session-status",
+      const payload = await apiFetch<SessionStatus>(
+        "/api/v1/auth/session-status",
         {
           method: "GET",
-          credentials: "include",
           cache: "no-store",
         },
       );
 
-      if (!response.ok) {
-        setUser(null);
-        return false;
-      }
-
-      const payload = (await response.json()) as SessionStatus;
       setUser(payload);
       return true;
     } catch {
@@ -71,9 +65,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     closeRequestInFlight.current = true;
     try {
-      await fetch("http://localhost:8000/api/v1/auth/session/terminate", {
+      await apiFetch("/api/v1/auth/session/terminate", {
         method: "POST",
-        credentials: "include",
         cache: "no-store",
       });
     } catch {
@@ -86,9 +79,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch("http://localhost:8000/api/v1/auth/logout", {
+      await apiFetch("/api/v1/auth/logout", {
         method: "POST",
-        credentials: "include",
         cache: "no-store",
       });
     } catch {

@@ -1,50 +1,25 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { apiFetch } from "../../lib/api";
+import { ProtectedLayout } from "../protected-layout";
 
 type Transaction = {
-  id: number;
-  title: string;
-  category: string;
-  amount: number;
-  kind: "credit" | "debit";
+  id: string;
   date: string;
+  description: string;
+  amount: number;
+  type: "credit" | "debit";
+  owner_email?: string;
 };
 
-const defaultTransactions: Transaction[] = [
-  {
-    id: 1,
-    title: "Salary credit",
-    category: "Income",
-    amount: 72000,
-    kind: "credit",
-    date: "2026-08-01",
-  },
-  {
-    id: 2,
-    title: "Rent payment",
-    category: "Housing",
-    amount: 28000,
-    kind: "debit",
-    date: "2026-08-03",
-  },
-  {
-    id: 3,
-    title: "Investment top-up",
-    category: "Investments",
-    amount: 12500,
-    kind: "debit",
-    date: "2026-08-05",
-  },
-  {
-    id: 4,
-    title: "Insurance premium",
-    category: "Protection",
-    amount: 6200,
-    kind: "debit",
-    date: "2026-08-09",
-  },
-];
+type TransactionSummary = {
+  income_total: number;
+  expense_total: number;
+  net_total: number;
+  savings_rate: number;
+  transaction_count: number;
+};
 
 const indianCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -53,228 +28,282 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function TransactionsPage() {
-  const [transactions, setTransactions] =
-    useState<Transaction[]>(defaultTransactions);
-
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [summary, setSummary] = useState<TransactionSummary>({
+    income_total: 0,
+    expense_total: 0,
+    net_total: 0,
+    savings_rate: 0,
+    transaction_count: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
-    title: "",
+    description: "",
     category: "Income",
     amount: "",
-    kind: "credit" as Transaction["kind"],
-    date: "2026-08-19",
+    type: "credit" as "credit" | "debit",
+    date: new Date().toISOString().slice(0, 10),
   });
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [listResponse, summaryResponse] = await Promise.all([
+        apiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
+        apiFetch<TransactionSummary>("/api/v1/transactions/summary"),
+      ]);
+      setTransactions(listResponse.transactions ?? []);
+      setSummary(summaryResponse);
+      setError("");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load transactions",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const title = form.title.trim();
+    const description = form.description.trim();
     const amount = Number(form.amount);
 
-    if (!title || Number.isNaN(amount) || amount <= 0) {
+    if (!description || Number.isNaN(amount) || amount <= 0) {
       return;
     }
 
-    setTransactions((current) => [
-      {
-        id: Date.now(),
-        title,
-        category: form.category,
-        amount,
-        kind: form.kind,
-        date: form.date,
-      },
-      ...current,
-    ]);
+    try {
+      await apiFetch("/api/v1/transactions/import", {
+        method: "POST",
+        body: JSON.stringify({
+          source_name: "ui-import",
+          records: [
+            {
+              date: form.date,
+              description,
+              amount,
+              type: form.type,
+            },
+          ],
+        }),
+      });
 
-    setForm({
-      title: "",
-      category: "Income",
-      amount: "",
-      kind: "credit",
-      date: "2026-08-19",
-    });
+      setForm({
+        description: "",
+        category: "Income",
+        amount: "",
+        type: "credit",
+        date: new Date().toISOString().slice(0, 10),
+      });
+      await loadData();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to save transaction",
+      );
+    }
   };
 
-  const netFlow = transactions.reduce((sum, item) => {
-    return item.kind === "credit" ? sum + item.amount : sum - item.amount;
-  }, 0);
-
   return (
-    <main className="page-shell feature-page">
-      <header className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-mark" aria-hidden="true">
-            TM
-          </div>
-          <div>
-            <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
-            <h1>ThriveMatrix</h1>
-          </div>
-        </div>
-
-        <nav className="main-nav" aria-label="Main navigation">
-          <a href="/">Overview</a>
-          <a href="/goals">Goals</a>
-          <a href="/portfolio">Portfolio</a>
-          <a href="/transactions">Transactions</a>
-        </nav>
-      </header>
-
-      <section className="feature-header panel">
-        <div>
-          <p className="eyebrow accent">TRANSACTIONS</p>
-          <h2>Review movement, cash flow, and category patterns.</h2>
-        </div>
-
-        <div className="summary-strip" aria-label="Transaction summary">
-          <div>
-            <span className="meta-label">Net flow</span>
-            <strong>{indianCurrency.format(netFlow)}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Entries</span>
-            <strong>{transactions.length}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Spending ratio</span>
-            <strong>31%</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-grid">
-        <article className="panel">
-          <div className="section-head">
+    <ProtectedLayout>
+      <main className="page-shell feature-page">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-mark" aria-hidden="true">
+              TM
+            </div>
             <div>
-              <p className="eyebrow">IMPORT</p>
-              <h3>Log a transaction</h3>
+              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <h1>ThriveMatrix</h1>
             </div>
           </div>
 
-          <form className="goal-form" onSubmit={handleSubmit}>
-            <div className="field-grid">
-              <label className="field">
-                <span>Title</span>
-                <input
-                  value={form.title}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      title: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. Grocery top-up"
-                />
-              </label>
+          <nav className="main-nav" aria-label="Main navigation">
+            <a href="/">Overview</a>
+            <a href="/goals">Goals</a>
+            <a href="/portfolio">Portfolio</a>
+            <a href="/transactions">Transactions</a>
+          </nav>
+        </header>
 
-              <label className="field">
-                <span>Category</span>
-                <select
-                  value={form.category}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      category: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="Income">Income</option>
-                  <option value="Housing">Housing</option>
-                  <option value="Investments">Investments</option>
-                  <option value="Protection">Protection</option>
-                  <option value="Lifestyle">Lifestyle</option>
-                </select>
-              </label>
+        <section className="feature-header panel">
+          <div>
+            <p className="eyebrow accent">TRANSACTIONS</p>
+            <h2>Review movement, cash flow, and category patterns.</h2>
+          </div>
 
-              <label className="field">
-                <span>Amount</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.amount}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      amount: event.target.value,
-                    }))
-                  }
-                  placeholder="15000"
-                />
-              </label>
-
-              <label className="field">
-                <span>Type</span>
-                <select
-                  value={form.kind}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      kind: event.target.value as Transaction["kind"],
-                    }))
-                  }
-                >
-                  <option value="credit">Credit</option>
-                  <option value="debit">Debit</option>
-                </select>
-              </label>
-
-              <label className="field field-wide">
-                <span>Date</span>
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-
-            <button className="primary-btn" type="submit">
-              Save entry
-            </button>
-          </form>
-        </article>
-
-        <aside className="panel">
-          <div className="section-head">
+          <div className="summary-strip" aria-label="Transaction summary">
             <div>
-              <p className="eyebrow">RECENT</p>
-              <h3>Activity feed</h3>
+              <span className="meta-label">Net flow</span>
+              <strong>{indianCurrency.format(summary.net_total)}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Entries</span>
+              <strong>{summary.transaction_count}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Savings rate</span>
+              <strong>{summary.savings_rate}%</strong>
             </div>
           </div>
+        </section>
 
-          <div className="goal-list compact-list">
-            {transactions.map((transaction) => (
-              <div className="goal-item" key={transaction.id}>
-                <div className="goal-topline">
-                  <strong>{transaction.title}</strong>
-                  <span
-                    className={`pill ${transaction.kind === "credit" ? "success" : "neutral"}`}
-                  >
-                    {transaction.kind === "credit" ? "Credit" : "Debit"}
-                  </span>
-                </div>
-                <div className="goal-details">
-                  <span>{transaction.category}</span>
-                  <span>{transaction.date}</span>
-                </div>
-                <div className="goal-details">
-                  <span
-                    className={transaction.kind === "credit" ? "positive" : ""}
-                  >
-                    {transaction.kind === "credit" ? "+" : "-"}
-                    {indianCurrency.format(transaction.amount)}
-                  </span>
-                </div>
+        <section className="feature-grid">
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">IMPORT</p>
+                <h3>Log a transaction</h3>
               </div>
-            ))}
-          </div>
-        </aside>
-      </section>
-    </main>
+            </div>
+
+            <form className="goal-form" onSubmit={handleSubmit}>
+              <div className="field-grid">
+                <label className="field">
+                  <span>Description</span>
+                  <input
+                    value={form.description}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Grocery top-up"
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Category</span>
+                  <select
+                    value={form.category}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        category: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="Income">Income</option>
+                    <option value="Housing">Housing</option>
+                    <option value="Investments">Investments</option>
+                    <option value="Protection">Protection</option>
+                    <option value="Lifestyle">Lifestyle</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>Amount</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.amount}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        amount: event.target.value,
+                      }))
+                    }
+                    placeholder="15000"
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Type</span>
+                  <select
+                    value={form.type}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        type: event.target.value as "credit" | "debit",
+                      }))
+                    }
+                  >
+                    <option value="credit">Credit</option>
+                    <option value="debit">Debit</option>
+                  </select>
+                </label>
+
+                <label className="field field-wide">
+                  <span>Date</span>
+                  <input
+                    type="date"
+                    value={form.date}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        date: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+
+              {error ? (
+                <p style={{ color: "#b42318", marginBottom: 12 }}>{error}</p>
+              ) : null}
+
+              <button className="primary-btn" type="submit">
+                Save entry
+              </button>
+            </form>
+          </article>
+
+          <aside className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">RECENT</p>
+                <h3>Activity feed</h3>
+              </div>
+            </div>
+
+            <div className="goal-list compact-list">
+              {loading ? (
+                <div className="goal-item">Loading transactions…</div>
+              ) : transactions.length === 0 ? (
+                <div className="goal-item">No transactions yet.</div>
+              ) : (
+                transactions.map((transaction) => (
+                  <div className="goal-item" key={transaction.id}>
+                    <div className="goal-topline">
+                      <strong>{transaction.description}</strong>
+                      <span
+                        className={`pill ${transaction.type === "credit" ? "success" : "neutral"}`}
+                      >
+                        {transaction.type === "credit" ? "Credit" : "Debit"}
+                      </span>
+                    </div>
+                    <div className="goal-details">
+                      <span>{form.category || "Income"}</span>
+                      <span>{transaction.date}</span>
+                    </div>
+                    <div className="goal-details">
+                      <span
+                        className={
+                          transaction.type === "credit" ? "positive" : ""
+                        }
+                      >
+                        {transaction.type === "credit" ? "+" : "-"}
+                        {indianCurrency.format(transaction.amount)}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        </section>
+      </main>
+    </ProtectedLayout>
   );
 }
