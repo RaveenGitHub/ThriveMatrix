@@ -1,0 +1,13 @@
+
+> thrivematrix-web@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3000
+
+▲ Next.js 16.3.1 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+✓ Ready in 15.1s
+✓ Running next.config took 15ms
+
+ GET / 200 in 4.0s (next.js: 3.8s, application-code: 238ms)
+ GET / 200 in 70ms (next.js: 5ms, application-code: 65ms)
+ GET / 200 in 81ms (next.js: 17ms, application-code: 64ms)

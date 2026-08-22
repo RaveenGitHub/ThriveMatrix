@@ -1,6 +1,8 @@
 fastapi<1,>=0.115
 uvicorn[standard]<1,>=0.32
 pydantic-settings<3,>=2.6
+pymysql<2,>=1.1
+sqlalchemy<3,>=2.0
 
 [dev]
 httpx<1,>=0.27

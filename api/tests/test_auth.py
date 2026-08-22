@@ -522,8 +522,8 @@ def test_reused_refresh_token_is_rejected() -> None:
     assert second_refresh.json()["detail"] == "Invalid refresh token"
 
 
-def test_session_records_are_persisted_in_sqlite_store() -> None:
-    email = f"sqlite-session-{uuid.uuid4()}@example.com"
+def test_session_records_are_persisted_in_runtime_store() -> None:
+    email = f"runtime-session-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
 
     client.post(
@@ -537,14 +537,23 @@ def test_session_records_are_persisted_in_sqlite_store() -> None:
     )
     assert result.status_code == 200
 
-    db_path = Path(__file__).resolve().parents[1] / "data" / "thrivematrix_sessions.db"
-    assert db_path.exists()
+    from app.db import get_engine, uses_mysql
+    from sqlalchemy import text
 
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT user_email, role FROM auth_sessions WHERE user_email = ?",
-            (email,),
-        ).fetchall()
+    if uses_mysql():
+        with get_engine().begin() as conn:
+            rows = conn.execute(
+                text("SELECT user_email, role FROM auth_sessions WHERE user_email = :email"),
+                {"email": email},
+            ).fetchall()
+    else:
+        db_path = Path(__file__).resolve().parents[1] / "data" / "thrivematrix_sessions.db"
+        assert db_path.exists()
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT user_email, role FROM auth_sessions WHERE user_email = ?",
+                (email,),
+            ).fetchall()
 
     assert rows
     assert rows[0][0] == email

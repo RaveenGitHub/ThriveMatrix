@@ -1,124 +1,54 @@
 # ThriveMatrix
 
-ThriveMatrix is a personal financial and life-readiness management platform focused on goals, investments, insurance, analytics, privacy, and planning insight. The current repository is a FastAPI-based MVP that validates the core domain flows without requiring a production-grade data warehouse or external service dependencies.
+ThriveMatrix is a personal finance and life-readiness platform for goals, net worth, investments, insurance, privacy, and planning.
 
-## Current status
+## Stack
 
-The project is in a verified MVP state for the implemented API backlog and the active product UI slice. The current branch is green with:
+- Backend: FastAPI + Python
+- Frontend: Next.js
+- Database: MariaDB with SQLite fallback for local development
+- Local services: Docker Compose for database and supporting services
 
-- 23 auth/session regression tests passing in the current verification suite
-- 1 non-blocking dependency warning from the FastAPI/TestClient stack
-- Next.js production build succeeded with 36 generated routes
-- SQLite-backed session persistence validated under the API data directory
-- login, refresh, logout, lockout, throttling, and admin unlock flows validated in the current workspace
-- operations and release-hardening status endpoints validated in the current workspace
+## Run locally
 
-The local validation commands used are:
+### Backend
 
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
-api/.venv/Scripts/python -m pytest -q api/tests
-npm --prefix web run build
-```
-
-The project also includes a one-command startup script for the required local services:
-
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
-./scripts/start-local.ps1
-```
-
-## Product scope
-
-The current API covers:
-
-- Auth, access control, and role enforcement
-- Privacy exports, account deletion, consent tracking, and redaction
-- Goal creation and ownership scoping
-- Investment tracking and portfolio summary
-- Transaction import and review flows
-- Insurance policy tracking and coverage scoring
-- Analytics snapshots and explainable insights
-- Dashboard, launch governance, and release status endpoints
-- Health, legal, relationship, emergency, legacy, and broader life-readiness domains
-- User-facing alerts for overdue goals and expiring policies
-
-The current web product slice includes the following feature routes:
-
-- Overview, Goals, Portfolio, Transactions, Insurance
-- Privacy, Security, Documents, Profile, Operations
-- Analytics, Alerts, Wellness, Career, Planning, Retirement
-- Education, Home, Travel, Family, Legal, Emergency, Health, Legacy
-
-## Local setup
-
-### Prerequisites
-
-- Python 3.12+ (local workspace validation used Python 3.13 compatibility where needed)
-- Node.js 22 LTS recommended for client-side tooling
-- npm
-- Optional: Docker Desktop/Compose for local service orchestration
-
-### Backend setup
-
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+```bash
 python -m venv api/.venv
-api/.venv/Scripts/python -m pip install --upgrade pip
-api/.venv/Scripts/python -m pip install -e api[dev]
-```
-
-### Run the API locally
-
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+api/.venv/Scripts/python -m pip install -r api/requirements.txt
 api/.venv/Scripts/python -m uvicorn app.main:app --app-dir api --reload
 ```
 
-The API is available at:
+### Frontend
 
-- http://localhost:8000
-- OpenAPI docs: http://localhost:8000/docs
-
-### Run the web app
-
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
+```bash
 npm install --prefix web
 npm run dev --prefix web
 ```
 
-The web server is expected at:
+### Docker
 
-- http://localhost:3000
-
-The production build should be checked with:
-
-```powershell
-cd "D:\Raveendran\thrivematrix\ThriveMatrix"
-npm --prefix web run build
+```bash
+docker compose up -d
 ```
 
-## Repository layout
+Stop the stack when not in use:
+
+```bash
+docker compose down
+```
+
+## Project structure
 
 ```text
-README.md
 api/
-  app/
-    main.py
-  tests/
-    ...feature tests...
 web/
-  ...Next.js client source...
 docs/
-  implementation-backlog.md
+README.md
 ```
 
-## Safety and configuration notes
+## Notes
 
-- Local `.env` files are repository-local only and should never be committed.
-- Secrets and sensitive values must be stored in an approved secret manager in real deployments.
-- The current auth/session slice uses verified SQLite-backed session persistence for the MVP and is hardened with secure cookie handling, replay protection, rotation, lockout, throttling, cleanup, and admin recovery.
-- Production deployments should provide a real secret manager, DB backup and retention policy, and deployment monitoring before final release.
-
-See [docs/implementation-backlog.md](docs/implementation-backlog.md) for the tracked delivery plan, statuses, and stage gates.
+- Keep `.env` values out of version control.
+- Use Docker only for the services you need locally.
+- The project is evolving toward a MariaDB-backed architecture while keeping the local development flow lightweight.

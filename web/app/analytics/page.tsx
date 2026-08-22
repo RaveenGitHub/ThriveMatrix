@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { apiFetch } from "../../lib/api";
 import { ProtectedLayout } from "../protected-layout";
 
 const trendData = [
@@ -12,45 +14,42 @@ const trendData = [
   { month: "Jul", value: 61 },
 ];
 
-const observations = [
-  {
-    label: "Savings rate",
-    value: "31%",
-    note: "Healthy retention for the last 90 days.",
-  },
-  {
-    label: "Expense trend",
-    value: "-8%",
-    note: "Spending is lower than the previous quarter.",
-  },
-  {
-    label: "Cash runway",
-    value: "9.4 mo",
-    note: "Operational cushion remains adequate.",
-  },
-  {
-    label: "Goal confidence",
-    value: "High",
-    note: "Most priorities remain on track or near target.",
-  },
-];
-
-const insights = [
-  {
-    title: "Portfolio resilience",
-    text: "Your diversified mix limits volatility while keeping long-term growth exposure intact.",
-  },
-  {
-    title: "Non-advisory observation",
-    text: "The data supports stronger cash reserves, not a direct buy or sell recommendation.",
-  },
-  {
-    title: "Risk posture",
-    text: "Emergency liquidity remains stable and insurance coverage is adequate for the current plan.",
-  },
-];
+type InsightItem = {
+  type: string;
+  label: string;
+  rationale: string;
+  source: string;
+  advice: boolean;
+};
 
 export default function AnalyticsPage() {
+  const [insights, setInsights] = useState<InsightItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loadInsights = async () => {
+      try {
+        setLoading(true);
+        const response = await apiFetch<{ insights: InsightItem[] }>(
+          "/api/v1/analytics/insights",
+        );
+        setInsights(response.insights ?? []);
+        setError("");
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load analytics",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadInsights();
+  }, []);
+
   const maxValue = Math.max(...trendData.map((point) => point.value));
 
   return (
@@ -132,14 +131,24 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
+            {error ? (
+              <p style={{ color: "#b42318", marginBottom: 12 }}>{error}</p>
+            ) : null}
+
             <div className="insight-grid single-column">
-              {observations.map((item) => (
-                <div className="insight-box" key={item.label}>
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                  <small>{item.note}</small>
-                </div>
-              ))}
+              {loading ? (
+                <div className="insight-box">Loading insights…</div>
+              ) : insights.length === 0 ? (
+                <div className="insight-box">No analytics insights yet.</div>
+              ) : (
+                insights.map((item) => (
+                  <div className="insight-box" key={item.type + item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.source}</strong>
+                    <small>{item.rationale}</small>
+                  </div>
+                ))
+              )}
             </div>
           </aside>
         </section>
@@ -153,12 +162,16 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="insight-grid three-up">
-            {insights.map((item) => (
-              <div className="insight-box" key={item.title}>
-                <span>{item.title}</span>
-                <small>{item.text}</small>
-              </div>
-            ))}
+            {insights.length === 0 ? (
+              <div className="insight-box">No insight data available.</div>
+            ) : (
+              insights.map((item) => (
+                <div className="insight-box" key={item.type + item.label}>
+                  <span>{item.label}</span>
+                  <small>{item.rationale}</small>
+                </div>
+              ))
+            )}
           </div>
         </section>
       </main>

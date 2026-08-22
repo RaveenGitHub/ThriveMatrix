@@ -1,249 +1,354 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
+import { ProtectedLayout } from "../protected-layout";
 
-type DomainRecord = {
-  id: number;
-  category: "Health" | "Legal" | "Relationships" | "Readiness";
-  title: string;
-  status: "Ready" | "Review" | "Needs action";
-  detail: string;
+type DomainSummaryResponse = {
+  status: string;
+  domains: {
+    health: { count: number; status: string };
+    legal: { count: number; status: string };
+    relationships: { count: number; status: string };
+    readiness: { count: number; status: string };
+  };
 };
 
-const defaultRecords: DomainRecord[] = [
-  {
-    id: 1,
-    category: "Health",
-    title: "Annual check-up",
-    status: "Ready",
-    detail: "Routine review scheduled for next quarter.",
-  },
-  {
-    id: 2,
-    category: "Legal",
-    title: "Will and nominee update",
-    status: "Review",
-    detail: "Nominee details need to be revalidated.",
-  },
-  {
-    id: 3,
-    category: "Relationships",
-    title: "Family circle sync",
-    status: "Ready",
-    detail: "Important contacts are current and reachable.",
-  },
-  {
-    id: 4,
-    category: "Readiness",
-    title: "Emergency pack list",
-    status: "Needs action",
-    detail: "A few contingencies still require confirmation.",
-  },
-];
+type DomainRecord = {
+  id: string;
+  category: string;
+  title: string;
+  status: string;
+  notes: string;
+};
 
 export default function DomainsPage() {
-  const [records, setRecords] = useState<DomainRecord[]>(defaultRecords);
-
+  const [summary, setSummary] = useState<DomainSummaryResponse | null>(null);
+  const [healthRecords, setHealthRecords] = useState<DomainRecord[]>([]);
+  const [legalContacts, setLegalContacts] = useState<DomainRecord[]>([]);
+  const [relationshipRecords, setRelationshipRecords] = useState<
+    DomainRecord[]
+  >([]);
+  const [readinessItems, setReadinessItems] = useState<DomainRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
-    category: "Health" as DomainRecord["category"],
+    category: "Health",
     title: "",
-    status: "Ready" as DomainRecord["status"],
-    detail: "",
+    status: "Ready",
+    notes: "",
   });
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const loadDomains = async () => {
+    try {
+      setLoading(true);
+      const [
+        summaryResponse,
+        healthResponse,
+        legalResponse,
+        relationshipsResponse,
+        readinessResponse,
+      ] = await Promise.all([
+        apiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
+        apiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
+        apiFetch<{
+          contacts: Array<{
+            id: string;
+            name: string;
+            relationship: string;
+            phone: string;
+            email: string;
+          }>;
+        }>("/api/v1/legal/emergency-contacts"),
+        apiFetch<{ records: DomainRecord[] }>("/api/v1/relationships/records"),
+        apiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
+      ]);
+
+      setSummary(summaryResponse);
+      setHealthRecords(healthResponse.records ?? []);
+      setLegalContacts(
+        (legalResponse.contacts ?? []).map((contact) => ({
+          id: contact.id,
+          category: "Legal",
+          title: contact.name,
+          status: "Ready",
+          notes: `${contact.relationship} • ${contact.phone}`,
+        })),
+      );
+      setRelationshipRecords(relationshipsResponse.records ?? []);
+      setReadinessItems(readinessResponse.items ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load domain summary",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDomains();
+  }, []);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const title = form.title.trim();
-    const detail = form.detail.trim();
-
-    if (!title || !detail) {
+    if (!form.title.trim() || !form.notes.trim()) {
       return;
     }
 
-    setRecords((current) => [
-      {
-        id: Date.now(),
-        category: form.category,
-        title,
-        status: form.status,
-        detail,
-      },
-      ...current,
-    ]);
+    try {
+      const endpointMap: Record<string, string> = {
+        Health: "/api/v1/health/records",
+        Legal: "/api/v1/legal/emergency-contacts",
+        Relationships: "/api/v1/relationships/records",
+        Readiness: "/api/v1/readiness/items",
+      };
 
-    setForm({
-      category: "Health",
-      title: "",
-      status: "Ready",
-      detail: "",
-    });
+      const payloadMap: Record<string, object> = {
+        Health: {
+          record_type: form.title,
+          date: new Date().toISOString().slice(0, 10),
+          value: form.status,
+          notes: form.notes,
+        },
+        Legal: {
+          name: form.title,
+          relationship: "contact",
+          phone: "0000000000",
+          email: "contact@example.com",
+        },
+        Relationships: {
+          category: form.title,
+          name: form.title,
+          status: form.status,
+          notes: form.notes,
+        },
+        Readiness: {
+          category: form.title,
+          title: form.title,
+          status: form.status,
+          notes: form.notes,
+        },
+      };
+
+      await apiFetch(endpointMap[form.category], {
+        method: "POST",
+        body: JSON.stringify(payloadMap[form.category]),
+      });
+
+      setForm({ category: "Health", title: "", status: "Ready", notes: "" });
+      await loadDomains();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to save domain item",
+      );
+    }
   };
 
-  const counts = {
-    Health: records.filter((record) => record.category === "Health").length,
-    Legal: records.filter((record) => record.category === "Legal").length,
-    Relationships: records.filter(
-      (record) => record.category === "Relationships",
-    ).length,
-    Readiness: records.filter((record) => record.category === "Readiness")
-      .length,
-  };
+  const counts = useMemo(
+    () => ({
+      Health: summary?.domains.health.count ?? healthRecords.length,
+      Legal: summary?.domains.legal.count ?? legalContacts.length,
+      Relationships:
+        summary?.domains.relationships.count ?? relationshipRecords.length,
+      Readiness: summary?.domains.readiness.count ?? readinessItems.length,
+    }),
+    [
+      healthRecords.length,
+      legalContacts.length,
+      relationshipRecords.length,
+      readinessItems.length,
+      summary,
+    ],
+  );
+
+  const recordList = [
+    ...healthRecords.map((record) => ({ ...record, category: "Health" })),
+    ...legalContacts,
+    ...relationshipRecords.map((record) => ({
+      ...record,
+      category: "Relationships",
+    })),
+    ...readinessItems.map((item) => ({ ...item, category: "Readiness" })),
+  ];
 
   return (
-    <main className="page-shell feature-page">
-      <header className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-mark" aria-hidden="true">
-            TM
-          </div>
-          <div>
-            <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
-            <h1>ThriveMatrix</h1>
-          </div>
-        </div>
-
-        <nav className="main-nav" aria-label="Main navigation">
-          <a href="/">Overview</a>
-          <a href="/goals">Goals</a>
-          <a href="/portfolio">Portfolio</a>
-          <a href="/transactions">Transactions</a>
-          <a href="/domains">Domains</a>
-        </nav>
-      </header>
-
-      <section className="feature-header panel">
-        <div>
-          <p className="eyebrow accent">LIFE DOMAINS</p>
-          <h2>Keep health, legal, relationships, and readiness in sync.</h2>
-        </div>
-
-        <div className="summary-strip" aria-label="Life domain summary">
-          <div>
-            <span className="meta-label">Health</span>
-            <strong>{counts.Health}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Legal</span>
-            <strong>{counts.Legal}</strong>
-          </div>
-          <div>
-            <span className="meta-label">Readiness</span>
-            <strong>{counts.Readiness}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="feature-grid">
-        <article className="panel">
-          <div className="section-head">
+    <ProtectedLayout>
+      <main className="page-shell feature-page">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-mark" aria-hidden="true">
+              TM
+            </div>
             <div>
-              <p className="eyebrow">ADD ITEM</p>
-              <h3>Domain checklist</h3>
+              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <h1>ThriveMatrix</h1>
             </div>
           </div>
 
-          <form className="goal-form" onSubmit={handleSubmit}>
-            <div className="field-grid">
-              <label className="field">
-                <span>Domain</span>
-                <select
-                  value={form.category}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      category: event.target.value as DomainRecord["category"],
-                    }))
-                  }
-                >
-                  <option value="Health">Health</option>
-                  <option value="Legal">Legal</option>
-                  <option value="Relationships">Relationships</option>
-                  <option value="Readiness">Readiness</option>
-                </select>
-              </label>
+          <nav className="main-nav" aria-label="Main navigation">
+            <a href="/">Overview</a>
+            <a href="/goals">Goals</a>
+            <a href="/portfolio">Portfolio</a>
+            <a href="/transactions">Transactions</a>
+            <a href="/domains">Domains</a>
+          </nav>
+        </header>
 
-              <label className="field">
-                <span>Status</span>
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      status: event.target.value as DomainRecord["status"],
-                    }))
-                  }
-                >
-                  <option value="Ready">Ready</option>
-                  <option value="Review">Review</option>
-                  <option value="Needs action">Needs action</option>
-                </select>
-              </label>
+        <section className="feature-header panel">
+          <div>
+            <p className="eyebrow accent">LIFE DOMAINS</p>
+            <h2>Keep health, legal, relationships, and readiness in sync.</h2>
+          </div>
 
-              <label className="field field-wide">
-                <span>Title</span>
-                <input
-                  value={form.title}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      title: event.target.value,
-                    }))
-                  }
-                  placeholder="Annual documentation review"
-                />
-              </label>
-
-              <label className="field field-wide">
-                <span>Details</span>
-                <textarea
-                  value={form.detail}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      detail: event.target.value,
-                    }))
-                  }
-                  placeholder="Brief note on the action or current standing"
-                  rows={4}
-                />
-              </label>
-            </div>
-
-            <button className="primary-btn" type="submit">
-              Save domain item
-            </button>
-          </form>
-        </article>
-
-        <aside className="panel">
-          <div className="section-head">
+          <div className="summary-strip" aria-label="Life domain summary">
             <div>
-              <p className="eyebrow">RECORDS</p>
-              <h3>Latest checklist</h3>
+              <span className="meta-label">Health</span>
+              <strong>{counts.Health}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Legal</span>
+              <strong>{counts.Legal}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Readiness</span>
+              <strong>{counts.Readiness}</strong>
             </div>
           </div>
+        </section>
 
-          <div className="goal-list compact-list">
-            {records.map((record) => (
-              <div className="goal-item" key={record.id}>
-                <div className="goal-topline">
-                  <strong>{record.title}</strong>
-                  <span
-                    className={`pill ${record.status === "Ready" ? "success" : record.status === "Review" ? "neutral" : "neutral"}`}
-                  >
-                    {record.status}
-                  </span>
-                </div>
-                <div className="goal-details">
-                  <span>{record.category}</span>
-                  <span>{record.detail}</span>
-                </div>
+        {error ? (
+          <section className="panel" style={{ marginBottom: 24 }}>
+            <p style={{ color: "#b42318" }}>{error}</p>
+          </section>
+        ) : null}
+
+        <section className="feature-grid">
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">ADD ITEM</p>
+                <h3>Domain checklist</h3>
               </div>
-            ))}
-          </div>
-        </aside>
-      </section>
-    </main>
+            </div>
+
+            <form className="goal-form" onSubmit={handleSubmit}>
+              <div className="field-grid">
+                <label className="field">
+                  <span>Domain</span>
+                  <select
+                    value={form.category}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        category: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="Health">Health</option>
+                    <option value="Legal">Legal</option>
+                    <option value="Relationships">Relationships</option>
+                    <option value="Readiness">Readiness</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>Status</span>
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="Ready">Ready</option>
+                    <option value="Review">Review</option>
+                    <option value="Needs action">Needs action</option>
+                  </select>
+                </label>
+
+                <label className="field field-wide">
+                  <span>Title</span>
+                  <input
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="Annual documentation review"
+                  />
+                </label>
+
+                <label className="field field-wide">
+                  <span>Details</span>
+                  <textarea
+                    value={form.notes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
+                    }
+                    placeholder="Brief note on the action or current standing"
+                    rows={4}
+                  />
+                </label>
+              </div>
+
+              <button className="primary-btn" type="submit">
+                Save domain item
+              </button>
+            </form>
+          </article>
+
+          <aside className="panel">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">RECORDS</p>
+                <h3>Latest checklist</h3>
+              </div>
+            </div>
+
+            <div className="goal-list compact-list">
+              {loading ? (
+                <div className="goal-item">Loading domain records…</div>
+              ) : recordList.length === 0 ? (
+                <div className="goal-item">No domain records yet.</div>
+              ) : (
+                recordList.slice(0, 8).map((record, index) => (
+                  <div
+                    className="goal-item"
+                    key={`${record.category}-${record.id ?? index}`}
+                  >
+                    <div className="goal-topline">
+                      <strong>{record.title}</strong>
+                      <span
+                        className={`pill ${record.status === "Ready" ? "success" : "neutral"}`}
+                      >
+                        {record.status}
+                      </span>
+                    </div>
+                    <div className="goal-details">
+                      <span>{record.category}</span>
+                      <span>{record.notes}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        </section>
+      </main>
+    </ProtectedLayout>
   );
 }

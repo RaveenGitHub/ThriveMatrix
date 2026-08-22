@@ -5,6 +5,8 @@ Requires-Python: <3.14,>=3.12
 Requires-Dist: fastapi<1,>=0.115
 Requires-Dist: uvicorn[standard]<1,>=0.32
 Requires-Dist: pydantic-settings<3,>=2.6
+Requires-Dist: pymysql<2,>=1.1
+Requires-Dist: sqlalchemy<3,>=2.0
 Provides-Extra: dev
 Requires-Dist: httpx<1,>=0.27; extra == "dev"
 Requires-Dist: pytest<9,>=8.3; extra == "dev"
