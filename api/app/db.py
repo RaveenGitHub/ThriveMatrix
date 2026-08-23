@@ -21,8 +21,44 @@ def normalize_db_datetime(value: str | None) -> str | None:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _resolve_sqlite_path(path_value: str) -> str:
+    repo_root = Path(__file__).resolve().parents[1]
+    candidate = path_value.strip().replace("\\", "/")
+
+    if candidate in {":memory:", "file::memory:?cache=shared&uri=true"}:
+        return candidate
+
+    if candidate.startswith("/"):
+        return str(Path(candidate).resolve())
+
+    normalized = candidate.lstrip("./")
+    if normalized.startswith("api/"):
+        normalized = normalized[len("api/"):]
+
+    if normalized.startswith("data/"):
+        target_path = repo_root / normalized
+    else:
+        target_path = repo_root / normalized
+
+    return str(target_path.resolve())
+
+
 def get_database_url() -> str:
-    return os.environ.get("DATABASE_URL", "sqlite:///api/data/thrivematrix_sessions.db")
+    configured_url = os.environ.get("DATABASE_URL")
+    if configured_url:
+        normalized_url = configured_url.strip()
+        if normalized_url.startswith("sqlite"):
+            parsed = make_url(normalized_url)
+            database_name = parsed.database
+            if database_name and database_name not in {":memory:", "file::memory:?cache=shared&uri=true"} and not database_name.startswith("file:"):
+                resolved_path = _resolve_sqlite_path(database_name)
+                normalized_url = f"sqlite:///{resolved_path.replace('\\', '/')}"
+        return normalized_url
+
+    data_dir = Path(__file__).resolve().parents[1] / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    sqlite_path = (data_dir / "thrivematrix_sessions.db").resolve()
+    return f"sqlite:///{sqlite_path.as_posix()}"
 
 
 def uses_mysql() -> bool:
@@ -34,7 +70,11 @@ def get_engine() -> Engine:
     database_url = get_database_url()
     connect_args: dict[str, Any] = {}
     if database_url.startswith("sqlite"):
-        database_path = database_url.replace("sqlite:///", "", 1)
+        raw_path = database_url.replace("sqlite:///", "", 1)
+        if raw_path.startswith("/") and raw_path.startswith("/D:/"):
+            database_path = raw_path
+        else:
+            database_path = raw_path
         Path(database_path).parent.mkdir(parents=True, exist_ok=True)
     return create_engine(database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
 

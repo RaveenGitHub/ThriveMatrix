@@ -3,6 +3,7 @@ import hmac
 import os
 import secrets
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import re
@@ -29,12 +31,42 @@ from app.db import (
 )
 from app.services.auth_service import AuthService
 
-app = FastAPI(title="ThriveMatrix API", version="0.1.0", docs_url="/docs")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_database_ready()
+    ensure_auth_sessions_table()
+    ensure_migration_bootstrap_tables()
+    yield
+
+
+app = FastAPI(title="ThriveMatrix API", version="0.1.0", docs_url="/docs", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost",
+        "http://127.0.0.1",
+        "https://localhost",
+        "https://127.0.0.1",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 security = HTTPBearer(auto_error=False)
 auth_service = AuthService()
 
 
-@app.on_event("startup")
+def _use_secure_cookies_for_request(request: Request | None = None) -> bool:
+    if request is not None:
+        host = (request.headers.get("host") or "").lower()
+        if "localhost" in host or "127.0.0.1" in host:
+            return False
+    return os.getenv("APP_ENV", "local").strip().lower() in {"prod", "production", "staging"}
+
+
 def startup_db_checks() -> None:
     ensure_database_ready()
     ensure_auth_sessions_table()
@@ -119,6 +151,34 @@ SESSION_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "thrivematrix_s
 
 def _ensure_session_store() -> None:
     ensure_auth_sessions_table()
+
+
+def _get_user_default_goal(user_email: str) -> dict[str, Any] | None:
+    for goal in _GOALS:
+        if goal["owner_email"] == user_email and goal.get("is_default_goal") is True:
+            return goal
+    return None
+
+
+def _ensure_default_goal_for_user(user_email: str) -> dict[str, Any]:
+    default_goal = _get_user_default_goal(user_email)
+    if default_goal is not None:
+        return default_goal
+
+    goal = {
+        "id": str(len(_GOALS) + 1),
+        "name": "NoGoalAssigned",
+        "category": "general",
+        "target_amount": 0.0,
+        "target_currency": "INR",
+        "target_date": "2099-12-31",
+        "status": "active",
+        "priority": "low",
+        "owner_email": user_email,
+        "is_default_goal": True,
+    }
+    _GOALS.append(goal)
+    return goal
 
 
 _ensure_session_store()
@@ -318,12 +378,17 @@ class TransactionReviewRequest(BaseModel):
 
 class InsurancePolicyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    provider: str | None = Field(default=None, min_length=1, max_length=200)
     policy_type: Literal["health", "life", "disability", "critical_illness", "auto", "home", "liability"]
     premium_amount: float = Field(gt=0)
     coverage_amount: float = Field(gt=0)
+    coverage_goal: float | None = Field(default=None, ge=0)
+    premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
+    last_premium_date: str | None = None
     start_date: str
     end_date: str
     renewal_date: str | None = None
+    status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
 
     @property
     def dates_valid(self) -> bool:
@@ -1065,6 +1130,7 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
     }
     auth_service.user_repository.create_user(user_record)
     _USERS[user_email] = user_record
+    _ensure_default_goal_for_user(user_email)
 
     return {
         "user": {"email": user_email, "username": username, "role": payload.role},
@@ -1107,7 +1173,7 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
 
 
 @app.post("/api/v1/auth/login", tags=["auth"])
-def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
+def login_user(request: Request, payload: LoginRequest, response: Response) -> dict[str, str]:
     _cleanup_expired_sessions()
     lookup_value = _normalize_email(payload.email) if payload.email else _normalize_username(payload.username)
     user = _find_user_by_identifier(lookup_value or "") if lookup_value else None
@@ -1161,11 +1227,12 @@ def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
     }
     _record_session_in_store(user["email"], user["role"], access_token, refresh_hash, tokens["access_token_expires_at"], tokens["refresh_token_expires_at"])
 
+    secure_cookies = _use_secure_cookies_for_request(request)
     response.set_cookie(
         key="tm_access_token",
         value=tokens["access_token"],
         httponly=True,
-        secure=True,
+        secure=secure_cookies,
         samesite="lax",
         max_age=3600,
         path="/",
@@ -1174,7 +1241,7 @@ def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
         key="tm_refresh_token",
         value=tokens["refresh_token"],
         httponly=True,
-        secure=True,
+        secure=secure_cookies,
         samesite="lax",
         max_age=1209600,
         path="/",
@@ -1183,7 +1250,7 @@ def login_user(payload: LoginRequest, response: Response) -> dict[str, str]:
 
 
 @app.post("/api/v1/auth/refresh", tags=["auth"])
-def refresh_token(payload: TokenRefreshRequest, response: Response) -> dict[str, str]:
+def refresh_token(request: Request, payload: TokenRefreshRequest, response: Response) -> dict[str, str]:
     refresh_hash = _hash_token_value(payload.refresh_token)
     if refresh_hash in _USED_REFRESH_TOKENS:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -1203,11 +1270,12 @@ def refresh_token(payload: TokenRefreshRequest, response: Response) -> dict[str,
     _REFRESH_TOKENS.pop(refresh_hash, None)
     new_tokens = _issue_tokens(session["email"], session["role"])
 
+    secure_cookies = _use_secure_cookies_for_request(request)
     response.set_cookie(
         key="tm_access_token",
         value=new_tokens["access_token"],
         httponly=True,
-        secure=True,
+        secure=secure_cookies,
         samesite="lax",
         max_age=3600,
         path="/",
@@ -1216,7 +1284,7 @@ def refresh_token(payload: TokenRefreshRequest, response: Response) -> dict[str,
         key="tm_refresh_token",
         value=new_tokens["refresh_token"],
         httponly=True,
-        secure=True,
+        secure=secure_cookies,
         samesite="lax",
         max_age=1209600,
         path="/",
@@ -1238,8 +1306,8 @@ def logout_user(
         else:
             _invalidate_session_for_token(token)
 
-    response.delete_cookie("tm_access_token", path="/")
-    response.delete_cookie("tm_refresh_token", path="/")
+    response.delete_cookie("tm_access_token", path="/", secure=_use_secure_cookies_for_request(request))
+    response.delete_cookie("tm_refresh_token", path="/", secure=_use_secure_cookies_for_request(request))
     return {"status": "ok"}
 
 
@@ -1257,8 +1325,8 @@ def terminate_session(
         else:
             _invalidate_session_for_token(token)
 
-    response.delete_cookie("tm_access_token", path="/")
-    response.delete_cookie("tm_refresh_token", path="/")
+    response.delete_cookie("tm_access_token", path="/", secure=_use_secure_cookies_for_request(request))
+    response.delete_cookie("tm_refresh_token", path="/", secure=_use_secure_cookies_for_request(request))
     return {"status": "terminated"}
 
 
@@ -1438,7 +1506,7 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
     today = datetime.now(timezone.utc).date()
 
     for goal in _GOALS:
-        if goal["owner_email"] != user["email"]:
+        if goal["owner_email"] != user["email"] or goal.get("is_default_goal"):
             continue
 
         target_date = datetime.fromisoformat(goal["target_date"]).date()
@@ -1594,6 +1662,43 @@ def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
     return [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user_email]
 
 
+def _calculate_policy_gap_metrics(policy: dict[str, Any]) -> dict[str, float]:
+    coverage_goal = float(policy.get("coverage_goal") or 0.0)
+    coverage_amount = float(policy.get("coverage_amount") or 0.0)
+    premium_amount = float(policy.get("premium_amount") or 0.0)
+
+    coverage_gap = max(0.0, coverage_goal - coverage_amount)
+    if coverage_goal > 0:
+        progress_pct = min(100.0, (coverage_amount / coverage_goal) * 100.0)
+        premium_required = premium_amount * (coverage_goal / max(coverage_amount, 1.0))
+    else:
+        progress_pct = 0.0
+        premium_required = premium_amount
+
+    premium_gap = max(0.0, 0.5 * (premium_required - premium_amount))
+
+    return {
+        "coverage_gap": coverage_gap,
+        "premium_gap": premium_gap,
+        "progress_pct": round(progress_pct, 2),
+    }
+
+
+def _enrich_policy(policy: dict[str, Any]) -> dict[str, Any]:
+    metrics = _calculate_policy_gap_metrics(policy)
+    policy_data = dict(policy)
+    policy_data.setdefault("provider", None)
+    policy_data.setdefault("coverage_goal", 0.0)
+    policy_data.setdefault("premium_frequency", None)
+    policy_data.setdefault("last_premium_date", None)
+    policy_data.setdefault("status", "active")
+    policy_data["coverage_gap"] = round(metrics["coverage_gap"], 2)
+    policy_data["premium_gap"] = round(metrics["premium_gap"], 2)
+    policy_data["progress_pct"] = round(metrics["progress_pct"], 2)
+    policy_data["goal_status"] = "planned" if float(policy_data["coverage_goal"]) > 0 else "not_planned"
+    return policy_data
+
+
 def _get_goal_for_user(goal_id: str, user_email: str) -> dict[str, Any]:
     for goal in _GOALS:
         if goal["id"] == goal_id and goal["owner_email"] == user_email:
@@ -1697,6 +1802,12 @@ def create_goal(
     payload: GoalCreateRequest,
     user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
+    if payload.status == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Goal cannot be marked completed until progress is at least 100%.",
+        )
+
     goal = {
         "id": str(len(_GOALS) + 1),
         "name": payload.name,
@@ -1707,6 +1818,7 @@ def create_goal(
         "status": payload.status,
         "priority": payload.priority,
         "owner_email": user["email"],
+        "is_default_goal": False,
     }
     _GOALS.append(goal)
     _record_audit(
@@ -1726,7 +1838,9 @@ def create_goal(
 def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     owner_goals = [
         goal for goal in _GOALS
-        if goal["owner_email"] == user["email"] and goal.get("status") != "archived"
+        if goal["owner_email"] == user["email"]
+        and goal.get("status") != "archived"
+        and not goal.get("is_default_goal")
     ]
     return {"goals": owner_goals}
 
@@ -1744,6 +1858,14 @@ def update_goal(
 ) -> dict[str, Any]:
     goal = _get_goal_for_user(goal_id, user["email"])
     before = dict(goal)
+
+    if payload.status == "completed":
+        progress = _calculate_goal_progress(goal, user["email"])
+        if float(progress["percent_complete"]) < 100.0:
+            raise HTTPException(
+                status_code=400,
+                detail="Goal cannot be marked completed until progress is at least 100%.",
+            )
 
     if payload.name is not None:
         goal["name"] = payload.name
@@ -1815,6 +1937,10 @@ def create_investment(
         if existing is not None:
             response.status_code = status.HTTP_200_OK
             return existing
+
+    if payload.goal_id is None:
+        default_goal = _ensure_default_goal_for_user(user["email"])
+        payload.goal_id = default_goal["id"]
 
     if payload.goal_id is not None:
         goal = next(
@@ -1906,22 +2032,100 @@ def create_insurance_policy(
     policy = {
         "id": str(len(_INSURANCE_POLICIES) + 1),
         "name": payload.name,
+        "provider": payload.provider,
         "policy_type": payload.policy_type,
         "premium_amount": payload.premium_amount,
         "coverage_amount": payload.coverage_amount,
+        "coverage_goal": payload.coverage_goal if payload.coverage_goal is not None else 0.0,
+        "premium_frequency": payload.premium_frequency,
+        "last_premium_date": payload.last_premium_date,
         "start_date": payload.start_date,
         "end_date": payload.end_date,
         "renewal_date": payload.renewal_date,
+        "status": payload.status or "active",
         "owner_email": user["email"],
     }
     _INSURANCE_POLICIES.append(policy)
-    return policy
+    return _enrich_policy(policy)
 
 
 @app.get("/api/v1/insurance/policies", tags=["insurance"])
 def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     owner_policies = [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]]
-    return {"policies": owner_policies}
+    return {"policies": [_enrich_policy(policy) for policy in owner_policies]}
+
+
+@app.get("/api/v1/insurance/dashboard", tags=["insurance"])
+def insurance_dashboard(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    owner_policies = _get_user_policies(user["email"])
+    total_coverage = sum(float(policy.get("coverage_amount") or 0.0) for policy in owner_policies)
+    total_premium = sum(float(policy.get("premium_amount") or 0.0) for policy in owner_policies)
+    total_goal = sum(float(policy.get("coverage_goal") or 0.0) for policy in owner_policies)
+    coverage_gap = max(0.0, total_goal - total_coverage)
+    premium_gap = sum(_calculate_policy_gap_metrics(policy)["premium_gap"] for policy in owner_policies)
+    readiness_score = 0 if not owner_policies else min(100, int((total_coverage / max(total_goal, 1.0)) * 100))
+
+    return {
+        "policy_count": len(owner_policies),
+        "total_coverage": round(total_coverage, 2),
+        "total_premium": round(total_premium, 2),
+        "coverage_gap": round(coverage_gap, 2),
+        "premium_gap": round(premium_gap, 2),
+        "readiness_score": readiness_score,
+    }
+
+
+@app.get("/api/v1/insurance/gaps", tags=["insurance"])
+def insurance_gaps(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    gaps: list[dict[str, Any]] = []
+    for policy in _get_user_policies(user["email"]):
+        coverage_goal = float(policy.get("coverage_goal") or 0.0)
+        coverage_amount = float(policy.get("coverage_amount") or 0.0)
+        metrics = _calculate_policy_gap_metrics(policy)
+
+        if coverage_goal > 0 and coverage_amount < coverage_goal:
+            gaps.append(
+                {
+                    "type": "coverage_gap",
+                    "policy_id": policy["id"],
+                    "policy_name": policy["name"],
+                    "amount": round(metrics["coverage_gap"], 2),
+                    "severity": "medium",
+                }
+            )
+
+        if metrics["premium_gap"] > 0:
+            gaps.append(
+                {
+                    "type": "premium_gap",
+                    "policy_id": policy["id"],
+                    "policy_name": policy["name"],
+                    "amount": round(metrics["premium_gap"], 2),
+                    "severity": "low",
+                }
+            )
+
+        if coverage_goal <= 0:
+            gaps.append(
+                {
+                    "type": "goal_not_planned",
+                    "policy_id": policy["id"],
+                    "policy_name": policy["name"],
+                    "amount": 0.0,
+                    "severity": "medium",
+                }
+            )
+
+    if not gaps:
+        gaps.append({
+            "type": "coverage_healthy",
+            "policy_id": None,
+            "policy_name": "All policies aligned",
+            "amount": 0.0,
+            "severity": "low",
+        })
+
+    return {"gaps": gaps}
 
 
 @app.get("/api/v1/insurance/coverage-score", tags=["insurance"])
@@ -2025,7 +2229,10 @@ def replay_event_outbox(user: dict[str, Any] = Depends(_get_current_user)) -> di
 
 @app.get("/api/v1/dashboard/summary", tags=["dashboard"])
 def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
-    owner_goals = [goal for goal in _GOALS if goal["owner_email"] == user["email"]]
+    owner_goals = [
+        goal for goal in _GOALS
+        if goal["owner_email"] == user["email"] and not goal.get("is_default_goal")
+    ]
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
     owner_policies = _get_user_policies(user["email"])
 
@@ -2077,7 +2284,7 @@ def operations_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dic
     metrics = {
         "audit_event_count": len(_AUDIT_LOGS),
         "user_count": len(_USERS),
-        "goal_count": len(_GOALS),
+        "goal_count": sum(1 for goal in _GOALS if not goal.get("is_default_goal")),
         "investment_count": len(_INVESTMENTS),
         "policy_count": len(_INSURANCE_POLICIES),
     }
