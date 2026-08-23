@@ -196,7 +196,8 @@ def test_expired_sessions_are_pruned_from_memory_and_store() -> None:
 
 
 def test_protected_route_requires_access_token() -> None:
-    response = client.get("/api/v1/auth/me")
+    fresh_client = TestClient(app)
+    response = fresh_client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Missing or invalid access token"
@@ -225,6 +226,28 @@ def test_access_token_allows_user_profile_fetch() -> None:
     assert me_response.status_code == 200
     assert me_response.json()["email"] == email
     assert me_response.json()["role"] == "user"
+
+
+def test_session_status_exposes_role_for_frontend_access_control() -> None:
+    email = f"session-role-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password, "role": "admin"},
+    )
+    access_token = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()["access_token"]
+
+    response = client.get(
+        "/api/v1/auth/session-status",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
 
 
 def test_user_can_manage_profile_preferences() -> None:
@@ -353,7 +376,8 @@ def test_user_cannot_access_admin_route() -> None:
 
 
 def test_protected_routes_reject_unauthenticated_access() -> None:
-    response = client.get("/api/v1/auth/session-status")
+    fresh_client = TestClient(app)
+    response = fresh_client.get("/api/v1/auth/session-status")
     assert response.status_code == 401
     assert response.json()["detail"] == "Missing or invalid access token"
 
@@ -361,23 +385,26 @@ def test_protected_routes_reject_unauthenticated_access() -> None:
 def test_login_sets_secure_session_cookies_and_cookie_auth_works() -> None:
     email = f"cookie-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
+    cookie_client = TestClient(app)
 
-    client.post(
+    cookie_client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": password},
     )
 
-    login_response = client.post(
+    login_response = cookie_client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": password},
+        headers={"Host": "localhost:3000"},
     )
 
     assert login_response.status_code == 200
     assert login_response.cookies.get("tm_access_token")
     assert login_response.cookies.get("tm_refresh_token")
 
-    cookie_session = client.get(
+    cookie_session = cookie_client.get(
         "/api/v1/auth/session-status",
+        headers={"Host": "localhost:3000"},
         cookies={
             "tm_access_token": login_response.cookies["tm_access_token"],
             "tm_refresh_token": login_response.cookies["tm_refresh_token"],

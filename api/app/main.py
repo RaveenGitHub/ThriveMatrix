@@ -997,6 +997,7 @@ def get_session_status(user: dict[str, Any] = Depends(_get_current_user)) -> dic
         "verified": bool(user.get("verified") or user.get("status") == "active"),
         "email": user["email"],
         "username": user.get("username"),
+        "role": user.get("role", "user"),
     }
 
 
@@ -1620,7 +1621,21 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
 @app.get("/api/v1/admin/users", tags=["admin"])
 def list_users(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
     _require_admin(user, "admin.users")
-    return {"users": [details["email"] for details in _USERS.values()]}
+    return {"users": [{"email": details["email"], "role": details.get("role", "user"), "status": details.get("status", "active")} for details in _USERS.values()]}
+
+
+@app.get("/api/v1/admin/governance", tags=["admin"])
+def governance_dashboard(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
+    _require_admin(user, "admin.governance")
+    return {
+        "status": "ok",
+        "users": list_users(user)["users"],
+        "modules": [
+            {"id": "governance", "name": "Governance", "status": "enabled"},
+            {"id": "security", "name": "Security", "status": "enabled"},
+            {"id": "ops", "name": "Operations", "status": "enabled"},
+        ],
+    }
 
 
 @app.post("/api/v1/admin/users/{user_email}/unlock", tags=["admin"])

@@ -1,16 +1,43 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { useAuth } from "../auth-context";
 import { ProtectedLayout } from "../protected-layout";
 
 type Policy = {
   id: string;
   name: string;
+  provider?: string | null;
   policy_type: string;
   coverage_amount: number;
+  coverage_goal?: number;
   premium_amount: number;
-  renewal_date: string;
+  premium_gap?: number;
+  coverage_gap?: number;
+  progress_pct?: number;
+  renewal_date?: string | null;
+  premium_frequency?: string | null;
+  status?: string | null;
+  goal_status?: string;
+};
+
+type DashboardSummary = {
+  policy_count: number;
+  total_coverage: number;
+  total_premium: number;
+  coverage_gap: number;
+  premium_gap: number;
+  readiness_score: number;
+};
+
+type GapItem = {
+  type: string;
+  policy_id?: string | null;
+  policy_name?: string | null;
+  amount?: number;
+  severity?: string;
 };
 
 const indianCurrency = new Intl.NumberFormat("en-IN", {
@@ -19,37 +46,59 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,
 });
 
+const defaultForm = {
+  name: "",
+  provider: "",
+  policy_type: "health",
+  coverage_amount: "",
+  coverage_goal: "",
+  premium_amount: "",
+  premium_frequency: "yearly",
+  status: "active",
+  start_date: new Date().toISOString().slice(0, 10),
+  end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10),
+  renewal_date: new Date(Date.now() + 300 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10),
+};
+
 export default function InsurancePage() {
+  const { isAdmin, logout } = useAuth();
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [dashboard, setDashboard] = useState<DashboardSummary>({
+    policy_count: 0,
+    total_coverage: 0,
+    total_premium: 0,
+    coverage_gap: 0,
+    premium_gap: 0,
+    readiness_score: 0,
+  });
+  const [gaps, setGaps] = useState<GapItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: "",
-    policy_type: "health",
-    coverage_amount: "",
-    premium_amount: "",
-    start_date: new Date().toISOString().slice(0, 10),
-    end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10),
-    renewal_date: new Date(Date.now() + 300 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10),
-  });
+  const [form, setForm] = useState(defaultForm);
 
-  const loadPolicies = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const response = await apiFetch<{ policies: Policy[] }>(
-        "/api/v1/insurance/policies",
-      );
-      setPolicies(response.policies ?? []);
+      const [policiesResponse, dashboardResponse, gapsResponse] =
+        await Promise.all([
+          apiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+          apiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
+          apiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
+        ]);
+
+      setPolicies(policiesResponse.policies ?? []);
+      setDashboard(dashboardResponse);
+      setGaps(gapsResponse.gaps ?? []);
       setError("");
     } catch (loadError) {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Unable to load policies",
+          : "Unable to load insurance data",
       );
     } finally {
       setLoading(false);
@@ -57,8 +106,17 @@ export default function InsurancePage() {
   };
 
   useEffect(() => {
-    void loadPolicies();
+    void loadData();
   }, []);
+
+  const totalGoal = useMemo(
+    () =>
+      policies.reduce(
+        (sum, policy) => sum + Number(policy.coverage_goal || 0),
+        0,
+      ),
+    [policies],
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -66,6 +124,7 @@ export default function InsurancePage() {
     const name = form.name.trim();
     const coverageAmount = Number(form.coverage_amount);
     const premiumAmount = Number(form.premium_amount);
+    const coverageGoal = Number(form.coverage_goal || 0);
 
     if (
       !name ||
@@ -82,29 +141,21 @@ export default function InsurancePage() {
         method: "POST",
         body: JSON.stringify({
           name,
+          provider: form.provider.trim() || undefined,
           policy_type: form.policy_type,
           premium_amount: premiumAmount,
           coverage_amount: coverageAmount,
+          coverage_goal: coverageGoal > 0 ? coverageGoal : undefined,
+          premium_frequency: form.premium_frequency,
+          status: form.status,
           start_date: form.start_date,
           end_date: form.end_date,
           renewal_date: form.renewal_date,
         }),
       });
 
-      setForm({
-        name: "",
-        policy_type: "health",
-        coverage_amount: "",
-        premium_amount: "",
-        start_date: new Date().toISOString().slice(0, 10),
-        end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10),
-        renewal_date: new Date(Date.now() + 300 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10),
-      });
-      await loadPolicies();
+      setForm(defaultForm);
+      await loadData();
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -114,14 +165,7 @@ export default function InsurancePage() {
     }
   };
 
-  const totalCover = policies.reduce(
-    (sum, policy) => sum + Number(policy.coverage_amount || 0),
-    0,
-  );
-  const totalPremium = policies.reduce(
-    (sum, policy) => sum + Number(policy.premium_amount || 0),
-    0,
-  );
+  const activeGaps = gaps.filter((item) => item.type !== "coverage_healthy");
 
   return (
     <ProtectedLayout>
@@ -138,12 +182,28 @@ export default function InsurancePage() {
           </div>
 
           <nav className="main-nav" aria-label="Main navigation">
-            <a href="/">Overview</a>
-            <a href="/goals">Goals</a>
-            <a href="/portfolio">Portfolio</a>
-            <a href="/transactions">Transactions</a>
-            <a href="/insurance">Insurance</a>
+            <Link href="/home">Overview</Link>
+            <Link href="/goals">Goals</Link>
+            <Link href="/portfolio">Portfolio</Link>
+            <Link href="/transactions">Transactions</Link>
+            <Link href="/insurance">Insurance</Link>
+            <Link href="/domains">Life domains</Link>
+            <Link href="/privacy">Privacy</Link>
+            {isAdmin ? <Link href="/governance">Governance</Link> : null}
           </nav>
+
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button className="primary-btn" type="button">
+              + Add record
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void logout()}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         <section className="feature-header panel">
@@ -157,15 +217,25 @@ export default function InsurancePage() {
           <div className="summary-strip" aria-label="Insurance summary">
             <div>
               <span className="meta-label">Coverage</span>
-              <strong>{indianCurrency.format(totalCover)}</strong>
+              <strong>
+                {indianCurrency.format(dashboard.total_coverage || 0)}
+              </strong>
             </div>
             <div>
-              <span className="meta-label">Annual premium</span>
-              <strong>{indianCurrency.format(totalPremium)}</strong>
+              <span className="meta-label">Coverage gap</span>
+              <strong>
+                {indianCurrency.format(dashboard.coverage_gap || 0)}
+              </strong>
             </div>
             <div>
-              <span className="meta-label">Policies</span>
-              <strong>{policies.length}</strong>
+              <span className="meta-label">Premium gap</span>
+              <strong>
+                {indianCurrency.format(dashboard.premium_gap || 0)}
+              </strong>
+            </div>
+            <div>
+              <span className="meta-label">Readiness</span>
+              <strong>{dashboard.readiness_score || 0}%</strong>
             </div>
           </div>
         </section>
@@ -196,6 +266,20 @@ export default function InsurancePage() {
                 </label>
 
                 <label className="field">
+                  <span>Provider</span>
+                  <input
+                    value={form.provider}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        provider: event.target.value,
+                      }))
+                    }
+                    placeholder="ICICI Lombard"
+                  />
+                </label>
+
+                <label className="field">
                   <span>Plan type</span>
                   <select
                     value={form.policy_type}
@@ -211,6 +295,8 @@ export default function InsurancePage() {
                     <option value="disability">Disability</option>
                     <option value="critical_illness">Critical illness</option>
                     <option value="auto">Auto</option>
+                    <option value="home">Home</option>
+                    <option value="liability">Liability</option>
                   </select>
                 </label>
 
@@ -231,6 +317,22 @@ export default function InsurancePage() {
                 </label>
 
                 <label className="field">
+                  <span>Coverage goal</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.coverage_goal}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        coverage_goal: event.target.value,
+                      }))
+                    }
+                    placeholder="3000000"
+                  />
+                </label>
+
+                <label className="field">
                   <span>Annual premium</span>
                   <input
                     type="number"
@@ -246,6 +348,42 @@ export default function InsurancePage() {
                   />
                 </label>
 
+                <label className="field">
+                  <span>Premium frequency</span>
+                  <select
+                    value={form.premium_frequency}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        premium_frequency: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="yearly">Yearly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="one_time">One-time</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>Status</span>
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="active">Active</option>
+                    <option value="renewal_due">Renewal due</option>
+                    <option value="pending">Pending</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+
                 <label className="field field-wide">
                   <span>Start date</span>
                   <input
@@ -255,6 +393,20 @@ export default function InsurancePage() {
                       setForm((current) => ({
                         ...current,
                         start_date: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+
+                <label className="field">
+                  <span>End date</span>
+                  <input
+                    type="date"
+                    value={form.end_date}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        end_date: event.target.value,
                       }))
                     }
                   />
@@ -288,12 +440,41 @@ export default function InsurancePage() {
           <aside className="panel">
             <div className="section-head">
               <div>
-                <p className="eyebrow">COVERAGE</p>
-                <h3>Active policies</h3>
+                <p className="eyebrow">SUMMARY</p>
+                <h3>Protection overview</h3>
               </div>
             </div>
 
-            <div className="goal-list compact-list">
+            <div className="metric-grid" style={{ marginTop: 0 }}>
+              <div className="metric-card">
+                <span className="metric-label">Policies</span>
+                <div className="metric-value">
+                  {dashboard.policy_count || policies.length}
+                </div>
+                <div className="metric-detail">Active insurance records</div>
+              </div>
+              <div className="metric-card">
+                <span className="metric-label">Goal coverage</span>
+                <div className="metric-value">
+                  {indianCurrency.format(totalGoal)}
+                </div>
+                <div className="metric-detail">Current target balance</div>
+              </div>
+              <div className="metric-card">
+                <span className="metric-label">Gap alerts</span>
+                <div className="metric-value">{activeGaps.length}</div>
+                <div className="metric-detail">Coverage and premium risks</div>
+              </div>
+              <div className="metric-card">
+                <span className="metric-label">Premium paid</span>
+                <div className="metric-value">
+                  {indianCurrency.format(dashboard.total_premium || 0)}
+                </div>
+                <div className="metric-detail">Annualized premium spend</div>
+              </div>
+            </div>
+
+            <div className="goal-list compact-list" style={{ marginTop: 18 }}>
               {loading ? (
                 <div className="goal-item">Loading policies…</div>
               ) : policies.length === 0 ? (
@@ -303,11 +484,13 @@ export default function InsurancePage() {
                   <div className="goal-item" key={policy.id}>
                     <div className="goal-topline">
                       <strong>{policy.name}</strong>
-                      <span className="pill success">Active</span>
+                      <span className="pill success">
+                        {policy.status || "active"}
+                      </span>
                     </div>
                     <div className="goal-details">
                       <span>{policy.policy_type}</span>
-                      <span>{policy.renewal_date}</span>
+                      <span>{policy.renewal_date || "No renewal date"}</span>
                     </div>
                     <div className="goal-details">
                       <span>
@@ -317,10 +500,36 @@ export default function InsurancePage() {
                         {indianCurrency.format(policy.premium_amount)}/yr
                       </span>
                     </div>
+                    <div className="goal-details">
+                      <span>
+                        Goal: {indianCurrency.format(policy.coverage_goal || 0)}
+                      </span>
+                      <span>{policy.progress_pct ?? 0}%</span>
+                    </div>
                   </div>
                 ))
               )}
             </div>
+
+            {activeGaps.length > 0 ? (
+              <div style={{ marginTop: 16 }}>
+                <p className="eyebrow">GAPS</p>
+                <div className="goal-list compact-list">
+                  {activeGaps.slice(0, 4).map((item, index) => (
+                    <div className="goal-item" key={`${item.type}-${index}`}>
+                      <div className="goal-topline">
+                        <strong>{item.policy_name || "Coverage risk"}</strong>
+                        <span className="pill warning">{item.type}</span>
+                      </div>
+                      <div className="goal-details">
+                        <span>{item.severity || "medium"} severity</span>
+                        <span>{indianCurrency.format(item.amount ?? 0)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </aside>
         </section>
       </main>

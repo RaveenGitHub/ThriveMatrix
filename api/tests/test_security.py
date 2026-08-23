@@ -1,4 +1,7 @@
+import os
 from pathlib import Path
+
+import pytest
 
 from app.main import redact_sensitive_fields, validate_runtime_config
 
@@ -43,6 +46,54 @@ def test_runtime_configuration_fails_closed_on_missing_secrets() -> None:
 
     assert "APP_SECRET" in missing
     assert "DATABASE_URL" in missing
+
+
+def test_runtime_configuration_rejects_sqlite_in_production() -> None:
+    missing = validate_runtime_config({
+        "APP_ENV": "production",
+        "APP_SECRET": "a" * 32,
+        "DATABASE_URL": "sqlite:////tmp/thrivematrix.db",
+    })
+
+    assert "DATABASE_URL" in missing
+
+
+def test_runtime_configuration_rejects_unknown_environment_names() -> None:
+    missing = validate_runtime_config({
+        "APP_ENV": "qa",
+        "APP_SECRET": "a" * 32,
+        "DATABASE_URL": "mysql+pymysql://thrivematrix:thrivematrix@localhost:3306/thrivematrix",
+    })
+
+    assert "APP_ENV" in missing
+
+
+def test_runtime_environment_loads_repo_dotenv_values(monkeypatch) -> None:
+    from app import main as app_main
+
+    repo_root = Path(__file__).resolve().parents[2]
+    env_path = repo_root / ".env"
+    original_contents = env_path.read_text(encoding="utf-8") if env_path.exists() else None
+
+    try:
+        env_path.write_text(
+            "APP_ENV=local\nAPP_SECRET=from-dotenv\nDATABASE_URL=mysql+pymysql://thrivematrix:thrivematrix@localhost:3306/thrivematrix\n",
+            encoding="utf-8",
+        )
+        for key in ["APP_ENV", "APP_SECRET", "DATABASE_URL"]:
+            monkeypatch.delenv(key, raising=False)
+        app_main.load_runtime_environment()
+        assert os.environ["APP_ENV"] == "local"
+        assert os.environ["APP_SECRET"] == "from-dotenv"
+        assert os.environ["DATABASE_URL"].startswith("mysql+pymysql://")
+    finally:
+        for key in ["APP_ENV", "APP_SECRET", "DATABASE_URL"]:
+            monkeypatch.delenv(key, raising=False)
+        if original_contents is None:
+            if env_path.exists():
+                env_path.unlink()
+        else:
+            env_path.write_text(original_contents, encoding="utf-8")
 
 
 def test_runtime_config_endpoint_redacts_sensitive_values() -> None:

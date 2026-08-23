@@ -17,11 +17,13 @@ type SessionStatus = {
   verified: boolean;
   email: string;
   username?: string;
+  role?: string;
 };
 
 type AuthContextValue = {
   isAuthenticated: boolean;
   isVerified: boolean;
+  isAdmin: boolean;
   isReady: boolean;
   user: SessionStatus | null;
   refreshSession: () => Promise<boolean>;
@@ -141,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       isAuthenticated: Boolean(user?.status === "active" || user?.verified),
       isVerified: Boolean(user?.verified),
+      isAdmin: user?.role === "admin",
       isReady,
       user,
       refreshSession,

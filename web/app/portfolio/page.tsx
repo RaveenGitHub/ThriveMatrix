@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { useAuth } from "../auth-context";
 import { ProtectedLayout } from "../protected-layout";
 
 type Investment = {
@@ -14,6 +16,14 @@ type Investment = {
   unit_value: number;
   current_asset_value: number;
   gain_loss: number;
+  goal_id?: string | null;
+};
+
+type GoalOption = {
+  id: string;
+  name: string;
+  status: string;
+  is_default_goal?: boolean;
 };
 
 type InvestmentSummary = {
@@ -29,7 +39,9 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function PortfolioPage() {
+  const { isAdmin, logout } = useAuth();
   const [investments, setInvestments] = useState<Investment[]>([]);
+  const [goals, setGoals] = useState<GoalOption[]>([]);
   const [summary, setSummary] = useState<InvestmentSummary>({
     total_invested: 0,
     current_value: 0,
@@ -37,29 +49,40 @@ export default function PortfolioPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    asset_class: "equity",
+    currency: "INR",
+    amount_invested: "",
+    units: "",
+    unit_value: "",
+    goal_id: "",
+  });
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [listResponse, summaryResponse, goalsResponse] = await Promise.all([
+        apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+        apiFetch<InvestmentSummary>("/api/v1/investments/summary"),
+        apiFetch<{ goals: GoalOption[] }>("/api/v1/goals"),
+      ]);
+      setInvestments(listResponse.investments ?? []);
+      setSummary(summaryResponse);
+      setGoals(goalsResponse.goals ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load portfolio",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        const [listResponse, summaryResponse] = await Promise.all([
-          apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
-          apiFetch<InvestmentSummary>("/api/v1/investments/summary"),
-        ]);
-        setInvestments(listResponse.investments ?? []);
-        setSummary(summaryResponse);
-        setError("");
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load portfolio",
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
     void loadData();
   }, []);
 
@@ -81,20 +104,33 @@ export default function PortfolioPage() {
 
   const addSampleHolding = async () => {
     try {
+      const payload = {
+        name: form.name.trim() || "Sovereign Gold Bond",
+        asset_class: form.asset_class,
+        currency: "INR",
+        amount_invested: Number(form.amount_invested || 290000),
+        units: Number(form.units || 12),
+        unit_value: Number(form.unit_value || 24000),
+        valuation_source: "manual",
+        valuation_timestamp: new Date().toISOString(),
+        goal_id: form.goal_id || undefined,
+      };
+
       await apiFetch<Investment>("/api/v1/investments", {
         method: "POST",
-        body: JSON.stringify({
-          name: "Sovereign Gold Bond",
-          asset_class: "commodity",
-          currency: "INR",
-          amount_invested: 290000,
-          units: 12,
-          unit_value: 24000,
-          valuation_source: "manual",
-          valuation_timestamp: new Date().toISOString(),
-        }),
+        body: JSON.stringify(payload),
       });
-      window.location.reload();
+
+      setForm({
+        name: "",
+        asset_class: "equity",
+        currency: "INR",
+        amount_invested: "",
+        units: "",
+        unit_value: "",
+        goal_id: "",
+      });
+      await loadData();
     } catch (addError) {
       setError(
         addError instanceof Error ? addError.message : "Unable to add holding",
@@ -117,11 +153,28 @@ export default function PortfolioPage() {
           </div>
 
           <nav className="main-nav" aria-label="Main navigation">
-            <a href="/">Overview</a>
-            <a href="/goals">Goals</a>
-            <a href="/portfolio">Portfolio</a>
-            <a href="/transactions">Transactions</a>
+            <Link href="/home">Overview</Link>
+            <Link href="/goals">Goals</Link>
+            <Link href="/portfolio">Portfolio</Link>
+            <Link href="/transactions">Transactions</Link>
+            <Link href="/insurance">Insurance</Link>
+            <Link href="/domains">Life domains</Link>
+            <Link href="/privacy">Privacy</Link>
+            {isAdmin ? <Link href="/governance">Governance</Link> : null}
           </nav>
+
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button className="primary-btn" type="button">
+              + Add record
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void logout()}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         <section className="feature-header panel">
@@ -160,6 +213,105 @@ export default function PortfolioPage() {
               >
                 + Add holding
               </button>
+            </div>
+
+            <div className="field-grid" style={{ marginBottom: 16 }}>
+              <label className="field">
+                <span>Holding name</span>
+                <input
+                  value={form.name}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Nifty Index"
+                />
+              </label>
+
+              <label className="field">
+                <span>Asset class</span>
+                <select
+                  value={form.asset_class}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      asset_class: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="equity">Equity</option>
+                  <option value="debt">Debt</option>
+                  <option value="commodity">Commodity</option>
+                  <option value="cash">Cash</option>
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Amount invested</span>
+                <input
+                  type="number"
+                  value={form.amount_invested}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      amount_invested: event.target.value,
+                    }))
+                  }
+                  placeholder="250000"
+                />
+              </label>
+
+              <label className="field">
+                <span>Units</span>
+                <input
+                  type="number"
+                  value={form.units}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      units: event.target.value,
+                    }))
+                  }
+                  placeholder="10"
+                />
+              </label>
+
+              <label className="field">
+                <span>Unit value</span>
+                <input
+                  type="number"
+                  value={form.unit_value}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      unit_value: event.target.value,
+                    }))
+                  }
+                  placeholder="25000"
+                />
+              </label>
+
+              <label className="field">
+                <span>Linked goal</span>
+                <select
+                  value={form.goal_id}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      goal_id: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">NoGoalAssigned</option>
+                  {goals.map((goal) => (
+                    <option key={goal.id} value={goal.id}>
+                      {goal.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {error ? (
