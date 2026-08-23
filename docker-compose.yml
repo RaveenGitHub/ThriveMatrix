@@ -13,6 +13,10 @@ services:
       MARIADB_USER: ${MARIADB_USER:-thrivematrix}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD:-thrivematrix}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpass}
+      OBJECT_STORAGE_ENDPOINT: http://object-storage:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-thrive-matrix}
+      OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-localadmin}
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localadmin}
     depends_on:
       mariadb:
         condition: service_healthy

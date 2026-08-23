@@ -9,6 +9,30 @@ ThriveMatrix is a personal finance and life-readiness platform for goals, net wo
 - Database: MariaDB with SQLite fallback for local development
 - Local services: Docker Compose for database and supporting services
 
+## Environment contract
+
+The backend validates `APP_ENV` at runtime and only accepts these values:
+
+- `local`
+- `development`
+- `dev`
+- `test`
+- `staging`
+- `production`
+- `prod`
+
+Unknown values fail closed and are reported as configuration errors. Production and staging also reject SQLite-backed `DATABASE_URL` values.
+
+### Local setup
+
+Copy the sample environment file before running the project:
+
+```bash
+copy .env.example .env
+```
+
+Then adjust the values for your local machine and services.
+
 ## Run locally
 
 ### Backend
