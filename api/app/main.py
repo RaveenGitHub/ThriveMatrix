@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import re
 
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -57,6 +58,49 @@ app.add_middleware(
 )
 security = HTTPBearer(auto_error=False)
 auth_service = AuthService()
+
+
+def _runtime_environment_name() -> str:
+    return (os.getenv("APP_ENV") or "local").strip().lower() or "local"
+
+
+def load_runtime_environment() -> dict[str, str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        Path.cwd() / ".env",
+        repo_root / ".env",
+        Path(__file__).resolve().parents[1] / ".env",
+    ]
+    seen: set[Path] = set()
+    loaded: dict[str, str] = {}
+
+    if not os.getenv("APP_ENV"):
+        os.environ["APP_ENV"] = "local"
+
+    for candidate in candidates:
+        normalized = candidate.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            file_values = dotenv_values(normalized)
+            for key, value in file_values.items():
+                if key and value is not None and not os.environ.get(key):
+                    os.environ[key] = str(value)
+                    loaded[key] = str(value)
+
+    for key in ["APP_ENV", "APP_SECRET", "DATABASE_URL", "REDIS_URL"]:
+        if key in loaded and key not in os.environ:
+            os.environ[key] = loaded[key]
+
+    load_dotenv(Path.cwd() / ".env", override=False)
+    load_dotenv(repo_root / ".env", override=False)
+    if not os.getenv("APP_ENV"):
+        os.environ["APP_ENV"] = "local"
+    return loaded
+
+
+load_runtime_environment()
 
 
 def _use_secure_cookies_for_request(request: Request | None = None) -> bool:
@@ -488,9 +532,19 @@ def redact_sensitive_fields(payload: Any) -> Any:
 
 
 def validate_runtime_config(config: dict[str, str]) -> list[str]:
-    required = ["APP_SECRET", "DATABASE_URL"]
+    required = ["APP_ENV", "APP_SECRET", "DATABASE_URL"]
     missing = [name for name in required if not config.get(name)]
-    return missing
+
+    app_env = str(config.get("APP_ENV") or "local").strip().lower() or "local"
+    valid_envs = {"local", "development", "dev", "test", "staging", "production", "prod"}
+    if app_env not in valid_envs:
+        missing.append("APP_ENV")
+
+    database_url = str(config.get("DATABASE_URL", "")).strip()
+    if not missing and app_env in {"prod", "production", "staging"} and database_url.startswith("sqlite"):
+        missing.append("DATABASE_URL")
+
+    return sorted(set(missing))
 
 
 def redact_sensitive_config(config: dict[str, str]) -> dict[str, str]:
