@@ -130,3 +130,76 @@ def test_policy_renewal_reminder_is_exposed_in_alerts() -> None:
 
     assert alerts_response.status_code == 200
     assert any(alert["type"] == "policy_renewal_due" for alert in alerts_response.json()["alerts"])
+
+
+def test_insurance_policy_tracks_coverage_goal_and_premium_gap() -> None:
+    email = f"insurance-goal-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.post(
+        "/api/v1/insurance/policies",
+        json={
+            "name": "Family Health Plan",
+            "policy_type": "health",
+            "provider": "Star Health",
+            "premium_amount": 20000,
+            "coverage_amount": 1200000,
+            "coverage_goal": 3000000,
+            "premium_frequency": "yearly",
+            "start_date": "2026-01-01",
+            "end_date": "2027-01-01",
+            "renewal_date": "2026-09-01",
+            "last_premium_date": "2026-08-01",
+            "status": "active",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["coverage_goal"] == 3000000
+    assert body["coverage_gap"] == 1800000
+    assert body["premium_gap"] >= 0
+    assert body["progress_pct"] == 40.0
+
+
+def test_insurance_dashboard_and_gap_endpoints_are_available() -> None:
+    email = f"insurance-dashboard-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    client.post(
+        "/api/v1/insurance/policies",
+        json={
+            "name": "Life Secure",
+            "policy_type": "life",
+            "provider": "HDFC Life",
+            "premium_amount": 2500,
+            "coverage_amount": 750000,
+            "coverage_goal": 1500000,
+            "premium_frequency": "yearly",
+            "start_date": "2026-08-01",
+            "end_date": "2027-08-01",
+            "renewal_date": "2026-09-01",
+            "status": "active",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    dashboard = client.get(
+        "/api/v1/insurance/dashboard",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert dashboard.status_code == 200
+    dashboard_body = dashboard.json()
+    assert dashboard_body["policy_count"] == 1
+    assert dashboard_body["total_coverage"] == 750000
+    assert dashboard_body["coverage_gap"] == 750000
+
+    gaps = client.get(
+        "/api/v1/insurance/gaps",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert gaps.status_code == 200
+    gap_body = gaps.json()
+    assert len(gap_body["gaps"]) >= 1
+    assert any(item["type"] == "coverage_gap" for item in gap_body["gaps"]) 

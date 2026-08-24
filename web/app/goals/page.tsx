@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { useAuth } from "../auth-context";
 import { ProtectedLayout } from "../protected-layout";
 
 type GoalRecord = {
@@ -14,6 +16,18 @@ type GoalRecord = {
   status: string;
   priority: string;
   owner_email?: string;
+  is_default_goal?: boolean;
+};
+
+type GoalProgress = {
+  goal_id: string;
+  goal_name: string;
+  target_amount: number;
+  current_amount: number;
+  percent_complete: number;
+  remaining_amount: number;
+  funding_gap: number;
+  status: string;
 };
 
 const indianCurrency = new Intl.NumberFormat("en-IN", {
@@ -23,7 +37,11 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function GoalsPage() {
+  const { isAdmin, logout } = useAuth();
   const [goals, setGoals] = useState<GoalRecord[]>([]);
+  const [progressByGoal, setProgressByGoal] = useState<
+    Record<string, GoalProgress>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -37,7 +55,29 @@ export default function GoalsPage() {
     try {
       setLoading(true);
       const payload = await apiFetch<{ goals: GoalRecord[] }>("/api/v1/goals");
-      setGoals(payload.goals ?? []);
+      const nextGoals = payload.goals ?? [];
+      setGoals(nextGoals);
+
+      const progressEntries = await Promise.all(
+        nextGoals.map(async (goal) => {
+          try {
+            const progress = await apiFetch<GoalProgress>(
+              `/api/v1/goals/${goal.id}/progress`,
+            );
+            return [goal.id, progress] as const;
+          } catch {
+            return [goal.id, null] as const;
+          }
+        }),
+      );
+
+      const nextProgress: Record<string, GoalProgress> = {};
+      for (const [goalId, goalProgress] of progressEntries) {
+        if (goalProgress) {
+          nextProgress[goalId] = goalProgress;
+        }
+      }
+      setProgressByGoal(nextProgress);
       setError("");
     } catch (loadError) {
       setError(
@@ -57,13 +97,20 @@ export default function GoalsPage() {
       (sum, goal) => sum + Number(goal.target_amount || 0),
       0,
     );
-    const avgProgress = goals.length ? 68 : 0;
+    const avgProgress = goals.length
+      ? Math.round(
+          goals.reduce((sum, goal) => {
+            const progress = progressByGoal[goal.id]?.percent_complete ?? 0;
+            return sum + progress;
+          }, 0) / goals.length,
+        )
+      : 0;
 
     return {
       totalTarget,
       avgProgress,
     };
-  }, [goals]);
+  }, [goals, progressByGoal]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -120,11 +167,28 @@ export default function GoalsPage() {
           </div>
 
           <nav className="main-nav" aria-label="Main navigation">
-            <a href="/">Overview</a>
-            <a href="/goals">Goals</a>
-            <a href="/portfolio">Portfolio</a>
-            <a href="/transactions">Transactions</a>
+            <Link href="/home">Overview</Link>
+            <Link href="/goals">Goals</Link>
+            <Link href="/portfolio">Portfolio</Link>
+            <Link href="/transactions">Transactions</Link>
+            <Link href="/insurance">Insurance</Link>
+            <Link href="/domains">Life domains</Link>
+            <Link href="/privacy">Privacy</Link>
+            {isAdmin ? <Link href="/governance">Governance</Link> : null}
           </nav>
+
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button className="primary-btn" type="button">
+              + Add record
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void logout()}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         <section className="feature-header panel">
@@ -253,20 +317,18 @@ export default function GoalsPage() {
                 goals.map((goal) => {
                   const progress = Math.min(
                     100,
-                    Math.round(
-                      (((goal.target_amount || 1) * 0.68) /
-                        goal.target_amount) *
-                        100,
-                    ),
+                    Number(progressByGoal[goal.id]?.percent_complete ?? 0),
                   );
+                  const displayStatus =
+                    progress >= 100 ? "completed" : goal.status;
                   return (
                     <div className="goal-item" key={goal.id}>
                       <div className="goal-topline">
                         <strong>{goal.name}</strong>
                         <span
-                          className={`pill ${goal.status === "active" ? "success" : "neutral"}`}
+                          className={`pill ${displayStatus === "completed" ? "success" : "neutral"}`}
                         >
-                          {goal.status}
+                          {displayStatus}
                         </span>
                       </div>
                       <div className="goal-details">

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { useAuth } from "../auth-context";
 import { ProtectedLayout } from "../protected-layout";
 
 const preferencesDefaults = {
@@ -25,6 +27,7 @@ const accountTiles = [
 ];
 
 export default function ProfilePage() {
+  const { isAdmin, logout } = useAuth();
   const [preferences, setPreferences] = useState(preferencesDefaults);
 
   const toggle = (key: keyof typeof preferencesDefaults) => {
@@ -46,12 +49,28 @@ export default function ProfilePage() {
           </div>
 
           <nav className="main-nav" aria-label="Main navigation">
-            <a href="/">Overview</a>
-            <a href="/goals">Goals</a>
-            <a href="/portfolio">Portfolio</a>
-            <a href="/transactions">Transactions</a>
-            <a href="/profile">Profile</a>
+            <Link href="/home">Overview</Link>
+            <Link href="/goals">Goals</Link>
+            <Link href="/portfolio">Portfolio</Link>
+            <Link href="/transactions">Transactions</Link>
+            <Link href="/insurance">Insurance</Link>
+            <Link href="/domains">Life domains</Link>
+            <Link href="/privacy">Privacy</Link>
+            {isAdmin ? <Link href="/governance">Governance</Link> : null}
           </nav>
+
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button className="primary-btn" type="button">
+              + Add record
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void logout()}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         <section className="feature-header panel">

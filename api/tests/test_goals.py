@@ -243,6 +243,112 @@ def test_goal_progress_is_based_on_linked_investments_and_underfunded_alerts() -
     assert any(alert["type"] == "goal_underfunded" for alert in alerts.json()["alerts"])
 
 
+def test_unassigned_investments_use_default_goal_and_goal_completion_requires_100_percent() -> None:
+    email = f"goal-default-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post("/api/v1/auth/register", json={"email": email, "password": password})
+    token = _login(email, password)
+
+    unassigned = client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Unassigned amount",
+            "asset_class": "equity",
+            "currency": "INR",
+            "amount_invested": 20000,
+            "units": 10,
+            "unit_value": 2500,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert unassigned.status_code == 201
+    default_goal_id = unassigned.json()["goal_id"]
+    assert default_goal_id is not None
+
+    goal = client.post(
+        "/api/v1/goals",
+        json={
+            "name": "Home Purchase",
+            "category": "safety",
+            "target_amount": 100000,
+            "target_currency": "INR",
+            "target_date": "2028-12-31",
+            "status": "active",
+            "priority": "high",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    goal_id = goal.json()["id"]
+
+    client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Partial goal funding",
+            "asset_class": "equity",
+            "currency": "INR",
+            "amount_invested": 50000,
+            "units": 20,
+            "unit_value": 2500,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+            "goal_id": goal_id,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    blocked = client.put(
+        f"/api/v1/goals/{goal_id}",
+        json={"status": "completed"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert blocked.status_code == 400
+    assert "at least 100" in blocked.json()["detail"].lower()
+
+    client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Complete goal funding",
+            "asset_class": "equity",
+            "currency": "INR",
+            "amount_invested": 50000,
+            "units": 20,
+            "unit_value": 2500,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+            "goal_id": goal_id,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    complete = client.put(
+        f"/api/v1/goals/{goal_id}",
+        json={"status": "completed"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert complete.status_code == 200
+    assert complete.json()["status"] == "completed"
+    assert default_goal_id is not None
+
+
+def test_default_goal_is_hidden_from_user_goal_lists_and_dashboard_summary() -> None:
+    email = f"goal-default-count-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post("/api/v1/auth/register", json={"email": email, "password": password})
+    token = _login(email, password)
+
+    goals = client.get("/api/v1/goals", headers={"Authorization": f"Bearer {token}"})
+    assert goals.status_code == 200
+    assert goals.json()["goals"] == []
+
+    dashboard = client.get("/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {token}"})
+    assert dashboard.status_code == 200
+    assert dashboard.json()["goal_count"] == 0
+
+
 def test_goal_validation_rejects_invalid_dates_and_enums() -> None:
     email = f"goal-validation-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
