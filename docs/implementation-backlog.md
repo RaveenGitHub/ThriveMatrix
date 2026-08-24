@@ -2,7 +2,9 @@
 
 ## Status
 
-The project is in a working MVP state with the core backend and web flows active. The focus is now on hardening architecture, persistence, and production readiness while keeping the stack lightweight.
+Implementation status: DONE for the validated product baseline. The backend and frontend are green, the protected app shell and module integrations are in place, and the only remaining items are release-governance approvals rather than engineering blockers.
+
+Release governance status: PENDING approval for retention/deletion policy, pricing vendor licensing, regulated activity boundary, and final brand monogram signoff.
 
 ## Core product areas
 
