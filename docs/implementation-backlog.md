@@ -41,6 +41,16 @@ Release governance status: PENDING approval for retention/deletion policy, prici
 - Avoid unnecessary local runtime and background resource usage.
 - Validate security, privacy, and audit controls before release.
 
+## Requirement refinement: portfolio investment creation
+
+- Investment creation from the portfolio UI must use an explicit user action labeled `Add Investment`.
+- The action must not populate example values or auto-create a record when the form is blank.
+- Mandatory portfolio fields are: holding name, asset class, amount invested, units, and unit value.
+- Currency is defaulted to INR when the user does not provide another value, but the transaction must still be blocked until the required financial fields are valid and positive.
+- If any mandatory field is missing or invalid, the UI must show a validation message and must not call the API.
+- Successful submission creates only one investment record for the authenticated user and links to the selected goal only when a valid goal is chosen.
+- This requirement is enforced both in the frontend UX and in the backend contract validation for `amount_invested`, `units`, and `unit_value`.
+
 BLOCKED -> READY after the blocker is resolved and revalidated
 Any state -> DEFERRED only with an approved decision record and impact assessment
 

@@ -102,15 +102,37 @@ export default function PortfolioPage() {
     );
   }, [investments, summary.current_value]);
 
-  const addSampleHolding = async () => {
+  const addInvestment = async () => {
+    const trimmedName = form.name.trim();
+    const amountInvested = Number(form.amount_invested);
+    const units = Number(form.units);
+    const unitValue = Number(form.unit_value);
+
+    if (
+      !trimmedName ||
+      !form.asset_class.trim() ||
+      !form.currency.trim() ||
+      !Number.isFinite(amountInvested) ||
+      amountInvested <= 0 ||
+      !Number.isFinite(units) ||
+      units <= 0 ||
+      !Number.isFinite(unitValue) ||
+      unitValue <= 0
+    ) {
+      setError(
+        "Please enter all mandatory investment details before adding an investment.",
+      );
+      return;
+    }
+
     try {
       const payload = {
-        name: form.name.trim() || "Sovereign Gold Bond",
+        name: trimmedName,
         asset_class: form.asset_class,
-        currency: "INR",
-        amount_invested: Number(form.amount_invested || 290000),
-        units: Number(form.units || 12),
-        unit_value: Number(form.unit_value || 24000),
+        currency: form.currency,
+        amount_invested: amountInvested,
+        units,
+        unit_value: unitValue,
         valuation_source: "manual",
         valuation_timestamp: new Date().toISOString(),
         goal_id: form.goal_id || undefined,
@@ -121,6 +143,7 @@ export default function PortfolioPage() {
         body: JSON.stringify(payload),
       });
 
+      setError("");
       setForm({
         name: "",
         asset_class: "equity",
@@ -133,7 +156,9 @@ export default function PortfolioPage() {
       await loadData();
     } catch (addError) {
       setError(
-        addError instanceof Error ? addError.message : "Unable to add holding",
+        addError instanceof Error
+          ? addError.message
+          : "Unable to add investment",
       );
     }
   };
@@ -209,9 +234,9 @@ export default function PortfolioPage() {
               <button
                 className="ghost-btn"
                 type="button"
-                onClick={addSampleHolding}
+                onClick={() => void addInvestment()}
               >
-                + Add holding
+                Add Investment
               </button>
             </div>
 
