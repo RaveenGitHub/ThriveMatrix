@@ -41,6 +41,15 @@ Release governance status: PENDING approval for retention/deletion policy, prici
 - Avoid unnecessary local runtime and background resource usage.
 - Validate security, privacy, and audit controls before release.
 
+## Auth UX requirements backlog
+
+- The login screen must expose a visible Forgot password action for user recovery.
+- The login screen must expose a visible Register new user action for account creation.
+- These actions must be treated as first-class product flows, not optional UI afterthoughts.
+- The recovery flow requires a reset-request step, secure token validation, and a password reset form.
+- The registration flow requires a visible route from the login page and a full onboarding path for first-time users.
+- This item is required for complete authentication UX completeness and should be treated as a release-quality requirement.
+
 ## Requirement refinement: portfolio investment creation
 
 - Investment creation from the portfolio UI must use an explicit user action labeled `Add Investment`.
