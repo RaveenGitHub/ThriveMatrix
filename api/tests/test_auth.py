@@ -6,7 +6,17 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import _ACCESS_TOKENS, _REFRESH_TOKENS, _SESSION_TOKENS, _USERS, _cleanup_expired_sessions, _hash_token_value, _utc_now, app
+from app.main import (
+    _ACCESS_TOKENS,
+    _REFRESH_TOKENS,
+    _SESSION_TOKENS,
+    _USERS,
+    _cleanup_expired_sessions,
+    _hash_token_value,
+    _utc_now,
+    app,
+    auth_service,
+)
 
 client = TestClient(app)
 
@@ -258,6 +268,7 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
         "/api/v1/auth/register",
         json={"email": email, "password": password},
     )
+    original_hash = auth_service.user_repository.get_by_email(email)["password_hash"]
 
     forgot_response = client.post(
         "/api/v1/auth/forgot-password",
@@ -284,6 +295,10 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
     )
     assert reset_response.status_code == 200
     assert reset_response.json()["status"] == "password_reset"
+
+    stored_user = auth_service.user_repository.get_by_email(email)
+    assert stored_user is not None
+    assert stored_user["password_hash"] != original_hash
 
     next_login = client.post(
         "/api/v1/auth/login",

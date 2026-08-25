@@ -1327,6 +1327,10 @@ def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
     salt, password_hash = _hash_password(payload.new_password)
     user["password_salt"] = salt
     user["password_hash"] = password_hash
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"password_salt": salt, "password_hash": password_hash},
+    )
     match["used"] = True
     return {"status": "password_reset", "message": "Password updated successfully."}
 
