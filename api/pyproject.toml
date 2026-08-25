@@ -12,6 +12,7 @@ dependencies = [
   "pydantic-settings>=2.6,<3",
   "pymysql>=1.1,<2",
   "sqlalchemy>=2.0,<3",
+  "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]

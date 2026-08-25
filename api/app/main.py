@@ -301,6 +301,16 @@ class VerifyOTPRequest(BaseModel):
     otp: str = Field(min_length=4, max_length=6)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=1)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=1)
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
 class TokenRefreshRequest(BaseModel):
     refresh_token: str
 
@@ -754,6 +764,10 @@ def _normalize_username(username: str | None) -> str | None:
 
 def _generate_otp() -> str:
     return f"{secrets.randbelow(900000) + 100000:06d}"
+
+
+def _generate_reset_token() -> str:
+    return secrets.token_urlsafe(24)
 
 
 def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
@@ -1258,6 +1272,63 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     user["otp_expires_at"] = None
     user["otp_attempts"] = 0
     return {"success": True, "verified": True, "message": "Account verified successfully."}
+
+
+@app.post("/api/v1/auth/forgot-password", tags=["auth"])
+def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
+    email = _normalize_email(payload.email)
+    if email is None:
+        raise HTTPException(status_code=422, detail="Email is required")
+
+    user = _USERS.get(email) or _find_user_by_identifier(email)
+    if user is None:
+        return {"status": "ok", "message": "Password reset request accepted."}
+
+    reset_tokens = user.setdefault("password_reset_tokens", [])
+    valid_tokens = [
+        entry for entry in reset_tokens
+        if not entry.get("used") and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
+    ]
+    for entry in valid_tokens:
+        entry["used"] = True
+
+    token = _generate_reset_token()
+    reset_tokens.append({
+        "token": token,
+        "used": False,
+        "expires_at": (_utc_now() + timedelta(minutes=30)).isoformat(),
+        "created_at": _utc_now().isoformat(),
+    })
+    return {"status": "ok", "message": "Password reset request accepted.", "token": token}
+
+
+@app.post("/api/v1/auth/reset-password", tags=["auth"])
+def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
+    email = _normalize_email(payload.email)
+    if email is None:
+        raise HTTPException(status_code=422, detail="Email is required")
+
+    user = _USERS.get(email) or _find_user_by_identifier(email)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    tokens = user.get("password_reset_tokens", [])
+    match = next(
+        (
+            entry for entry in tokens
+            if entry.get("token") == payload.token and not entry.get("used")
+            and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
+        ),
+        None,
+    )
+    if match is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired reset token")
+
+    salt, password_hash = _hash_password(payload.new_password)
+    user["password_salt"] = salt
+    user["password_hash"] = password_hash
+    match["used"] = True
+    return {"status": "password_reset", "message": "Password updated successfully."}
 
 
 @app.post("/api/v1/auth/login", tags=["auth"])
