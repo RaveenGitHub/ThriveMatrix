@@ -115,6 +115,33 @@ def startup_db_checks() -> None:
     ensure_database_ready()
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
+    _hydrate_users_from_database()
+
+
+def _hydrate_users_from_database() -> None:
+    try:
+        with get_engine().connect() as connection:
+            rows = connection.execute(text("SELECT * FROM users")).mappings().all()
+    except Exception:
+        return
+
+    hydrated: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        user = dict(row)
+        email = str(user.get("email") or "").strip().lower()
+        if not email:
+            continue
+        user["verified"] = bool(user.get("verified", False))
+        user["status"] = user.get("status") or "active"
+        hydrated[email] = user
+
+    for email, user in list(_USERS.items()):
+        normalized_email = str(email or "").strip().lower()
+        if normalized_email not in hydrated:
+            hydrated[normalized_email] = user
+
+    _USERS.clear()
+    _USERS.update(hydrated)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -226,6 +253,7 @@ def _ensure_default_goal_for_user(user_email: str) -> dict[str, Any]:
 
 
 _ensure_session_store()
+_hydrate_users_from_database()
 
 
 class RegisterRequest(BaseModel):
@@ -1062,6 +1090,8 @@ def readiness() -> JSONResponse:
     database_url = os.environ.get("DATABASE_URL")
     cache_url = os.environ.get("REDIS_URL")
     object_storage_config = os.environ.get("OBJECT_STORAGE_ENDPOINT") or os.environ.get("S3_ENDPOINT")
+    app_env = (os.environ.get("APP_ENV") or "local").strip().lower()
+    local_runtime = app_env in {"local", "development", "dev", "test"}
 
     dependency_status = {
         "database": {
@@ -1075,9 +1105,11 @@ def readiness() -> JSONResponse:
             "evidence": "REDIS_URL configured" if cache_url else "REDIS_URL is missing from environment",
         },
         "object_storage": {
-            "status": "ready" if object_storage_config else "not_configured",
-            "required": True,
-            "evidence": "Object storage endpoint configured" if object_storage_config else "Object storage environment is not configured",
+            "status": "ready" if object_storage_config else ("not_required" if local_runtime else "not_configured"),
+            "required": not local_runtime,
+            "evidence": "Object storage endpoint configured" if object_storage_config else (
+                "Local development allows missing object storage" if local_runtime else "Object storage environment is not configured"
+            ),
         },
     }
     checks = [
@@ -1086,8 +1118,9 @@ def readiness() -> JSONResponse:
         {"name": "object_storage", "status": dependency_status["object_storage"]["status"]},
     ]
 
-    configured = [dep for dep in dependency_status.values() if dep["status"] == "ready"]
-    if len(configured) == len(dependency_status):
+    required_dependencies = [dep for dep in dependency_status.values() if dep["required"]]
+    configured = [dep for dep in required_dependencies if dep["status"] == "ready"]
+    if len(configured) == len(required_dependencies):
         status_value = "ready"
         http_status = 200
     elif configured:
@@ -1230,6 +1263,7 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
 @app.post("/api/v1/auth/login", tags=["auth"])
 def login_user(request: Request, payload: LoginRequest, response: Response) -> dict[str, str]:
     _cleanup_expired_sessions()
+    _hydrate_users_from_database()
     lookup_value = _normalize_email(payload.email) if payload.email else _normalize_username(payload.username)
     user = _find_user_by_identifier(lookup_value or "") if lookup_value else None
     if user is None:
