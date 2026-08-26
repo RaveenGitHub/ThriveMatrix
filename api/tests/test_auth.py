@@ -260,6 +260,45 @@ def test_session_status_exposes_role_for_frontend_access_control() -> None:
     assert response.json()["role"] == "admin"
 
 
+def test_forgot_password_rejects_unknown_email() -> None:
+    response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": f"unknown-{uuid.uuid4()}@example.com"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Email not registered"
+
+
+def test_inactive_user_cannot_login_until_activation() -> None:
+    email = f"inactive-{uuid.uuid4()}@example.com"
+    username = f"inactive_{uuid.uuid4().hex[:8]}"
+    password = "StrongPass!123"
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Inactive User",
+            "email": email,
+            "username": username,
+            "password": password,
+            "preferred_currency": "INR",
+            "require_verification": True,
+        },
+    )
+
+    assert register_response.status_code == 201
+    assert _USERS[email]["status"] in {"pending_verification", "inactive"}
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
+    )
+
+    assert login_response.status_code == 401
+    assert login_response.json()["detail"] == "Account not verified"
+
+
 def test_password_reset_request_and_reset_work_for_registered_user() -> None:
     email = f"reset-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
@@ -276,6 +315,7 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
     )
     assert forgot_response.status_code == 200
     assert forgot_response.json()["status"] == "ok"
+    assert "token" not in forgot_response.json()
 
     token_record = next(
         (
@@ -305,6 +345,54 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
         json={"email": email, "password": new_password},
     )
     assert next_login.status_code == 200
+
+
+def test_registration_rejects_weak_password_and_invalid_phone() -> None:
+    weak_password = client.post(
+        "/api/v1/auth/register",
+        json={"email": f"weak-{uuid.uuid4()}@example.com", "password": "weakpass"},
+    )
+    assert weak_password.status_code == 422
+
+    invalid_phone = client.post(
+        "/api/v1/auth/register",
+        json={"phone": "abc123", "password": "StrongPass!123"},
+    )
+    assert invalid_phone.status_code == 422
+
+
+def test_email_verification_supports_registration_activation_link() -> None:
+    email = f"activate-{uuid.uuid4()}@example.com"
+    username = f"activate_{uuid.uuid4().hex[:8]}"
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Activation User",
+            "email": email,
+            "username": username,
+            "password": "StrongPass!123",
+            "preferred_currency": "INR",
+            "require_verification": True,
+        },
+    )
+
+    assert register_response.status_code == 201
+    payload = register_response.json()
+    assert payload["verification_required"] is True
+    assert "activation_token" in payload or "activation_url" in payload
+
+    activation_token = payload.get("activation_token") or payload.get("activation_url", "").split("token=")[-1]
+    assert activation_token
+
+    verify_response = client.post(
+        "/api/v1/auth/verify-registration",
+        json={"email": email, "token": activation_token},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["verified"] is True
+    assert _USERS[email]["status"] == "active"
+    assert _USERS[email]["verified"] is True
 
 
 def test_user_can_manage_profile_preferences() -> None:
