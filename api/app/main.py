@@ -1285,20 +1285,23 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
         return {"status": "ok", "message": "Password reset request accepted."}
 
     reset_tokens = user.setdefault("password_reset_tokens", [])
-    valid_tokens = [
-        entry for entry in reset_tokens
-        if not entry.get("used") and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
-    ]
-    for entry in valid_tokens:
-        entry["used"] = True
+    for entry in list(reset_tokens):
+        expires_at = entry.get("expires_at")
+        if not entry.get("used") and expires_at and datetime.fromisoformat(expires_at) > _utc_now():
+            entry["used"] = True
 
     token = _generate_reset_token()
+    token_hash = _hash_token_value(token)
+    expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
     reset_tokens.append({
         "token": token,
+        "token_hash": token_hash,
         "used": False,
-        "expires_at": (_utc_now() + timedelta(minutes=30)).isoformat(),
+        "expires_at": expires_at,
         "created_at": _utc_now().isoformat(),
     })
+
+    auth_service.user_repository.add_password_reset_token(email, token_hash, expires_at)
     return {"status": "ok", "message": "Password reset request accepted.", "token": token}
 
 
@@ -1312,16 +1315,29 @@ def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    tokens = user.get("password_reset_tokens", [])
-    match = next(
+    token_hash = _hash_token_value(payload.token)
+    stored_tokens = auth_service.user_repository.list_password_reset_tokens(email)
+    valid_stored_token = next(
         (
-            entry for entry in tokens
-            if entry.get("token") == payload.token and not entry.get("used")
-            and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
+            entry
+            for entry in stored_tokens
+            if entry.get("token_hash") == token_hash
+            and entry.get("used_at") is None
+            and entry.get("expires_at")
+            and datetime.fromisoformat(str(entry["expires_at"])) > _utc_now()
         ),
         None,
     )
-    if match is None:
+    memory_tokens = user.get("password_reset_tokens", [])
+    match = next(
+        (
+            entry for entry in memory_tokens
+            if entry.get("token_hash") == token_hash and not entry.get("used")
+            and entry.get("expires_at") and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
+        ),
+        None,
+    )
+    if valid_stored_token is None and match is None:
         raise HTTPException(status_code=401, detail="Invalid or expired reset token")
 
     salt, password_hash = _hash_password(payload.new_password)
@@ -1331,7 +1347,9 @@ def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
         user["email"],
         {"password_salt": salt, "password_hash": password_hash},
     )
-    match["used"] = True
+    auth_service.user_repository.mark_password_reset_token_used(email, token_hash)
+    if match is not None:
+        match["used"] = True
     return {"status": "password_reset", "message": "Password updated successfully."}
 
 
