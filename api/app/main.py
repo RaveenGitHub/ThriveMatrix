@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import socket
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -786,6 +787,18 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _coerce_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _cleanup_expired_sessions() -> None:
     now = _utc_now()
 
@@ -1107,21 +1120,47 @@ def readiness() -> JSONResponse:
     app_env = (os.environ.get("APP_ENV") or "local").strip().lower()
     local_runtime = app_env in {"local", "development", "dev", "test"}
 
+    def _database_ready() -> bool:
+        if not database_url:
+            return False
+        try:
+            ensure_database_ready()
+            return True
+        except Exception:
+            return False
+
+    def _redis_ready() -> bool:
+        if not cache_url:
+            return False
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(cache_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 6379
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except Exception:
+            return False
+
+    database_ready = _database_ready()
+    cache_ready = _redis_ready()
+    object_storage_ready = bool(object_storage_config) or (local_runtime and not object_storage_config)
+
     dependency_status = {
         "database": {
-            "status": "ready" if database_url else "not_configured",
+            "status": "ready" if database_ready else "not_configured",
             "required": True,
-            "evidence": "DATABASE_URL configured" if database_url else "DATABASE_URL is missing from environment",
+            "evidence": "DATABASE_URL configured and reachable" if database_ready else "DATABASE_URL is missing or unreachable",
         },
         "cache": {
-            "status": "ready" if cache_url else "not_configured",
+            "status": "ready" if cache_ready else "not_configured",
             "required": True,
-            "evidence": "REDIS_URL configured" if cache_url else "REDIS_URL is missing from environment",
+            "evidence": "REDIS_URL configured and reachable" if cache_ready else "REDIS_URL is missing or unreachable",
         },
         "object_storage": {
-            "status": "ready" if object_storage_config else ("not_required" if local_runtime else "not_configured"),
+            "status": "ready" if object_storage_ready else ("not_required" if local_runtime else "not_configured"),
             "required": not local_runtime,
-            "evidence": "Object storage endpoint configured" if object_storage_config else (
+            "evidence": "Object storage endpoint configured" if object_storage_ready else (
                 "Local development allows missing object storage" if local_runtime else "Object storage environment is not configured"
             ),
         },
@@ -1257,13 +1296,21 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     if not user.get("otp_code"):
         return {"success": True, "verified": True, "message": "User is already verified."}
 
-    if expires_at and datetime.fromisoformat(expires_at) <= _utc_now():
+    if expires_at and _coerce_datetime(expires_at) <= _utc_now():
         user["otp_code"] = None
         user["otp_expires_at"] = None
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"otp_code": None, "otp_expires_at": None},
+        )
         raise HTTPException(status_code=401, detail="OTP expired")
 
     if otp_code != user.get("otp_code"):
         user["otp_attempts"] = int(user.get("otp_attempts", 0)) + 1
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"otp_attempts": user["otp_attempts"]},
+        )
         raise HTTPException(status_code=401, detail="Incorrect OTP")
 
     user["status"] = "active"
@@ -1271,6 +1318,10 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     user["otp_code"] = None
     user["otp_expires_at"] = None
     user["otp_attempts"] = 0
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"status": "active", "verified": True, "otp_code": None, "otp_expires_at": None, "otp_attempts": 0},
+    )
     return {"success": True, "verified": True, "message": "Account verified successfully."}
 
 
@@ -1377,14 +1428,27 @@ def login_user(request: Request, payload: LoginRequest, response: Response) -> d
 
         if failed_attempts >= ACCOUNT_LOCKOUT_THRESHOLD:
             user["status"] = "locked"
+            auth_service.user_repository.update_user(
+                user["email"],
+                {"status": "locked", "failed_login_attempts": failed_attempts},
+            )
             raise HTTPException(status_code=status.HTTP_423_LOCKED, detail="Account locked")
 
         if failed_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            auth_service.user_repository.update_user(
+                user["email"],
+                {"failed_login_attempts": failed_attempts},
+            )
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
 
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"failed_login_attempts": failed_attempts},
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user["failed_login_attempts"] = 0
+    auth_service.user_repository.update_user(user["email"], {"failed_login_attempts": 0})
     _invalidate_user_sessions(user["email"])
     tokens = auth_service.issue_tokens(user["email"], user["role"])
     access_token = tokens["access_token"]
@@ -1781,6 +1845,17 @@ def unlock_user(user_email: str, user: dict[str, Any] = Depends(_get_current_use
     target["otp_code"] = None
     target["otp_expires_at"] = None
     target["otp_attempts"] = 0
+    auth_service.user_repository.update_user(
+        user_email,
+        {
+            "status": "active",
+            "verified": True,
+            "failed_login_attempts": 0,
+            "otp_code": None,
+            "otp_expires_at": None,
+            "otp_attempts": 0,
+        },
+    )
 
     _record_audit(
         "auth.account_unlocked",
