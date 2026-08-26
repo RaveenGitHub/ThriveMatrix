@@ -6,7 +6,17 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import _ACCESS_TOKENS, _REFRESH_TOKENS, _SESSION_TOKENS, _USERS, _cleanup_expired_sessions, _hash_token_value, _utc_now, app
+from app.main import (
+    _ACCESS_TOKENS,
+    _REFRESH_TOKENS,
+    _SESSION_TOKENS,
+    _USERS,
+    _cleanup_expired_sessions,
+    _hash_token_value,
+    _utc_now,
+    app,
+    auth_service,
+)
 
 client = TestClient(app)
 
@@ -248,6 +258,53 @@ def test_session_status_exposes_role_for_frontend_access_control() -> None:
 
     assert response.status_code == 200
     assert response.json()["role"] == "admin"
+
+
+def test_password_reset_request_and_reset_work_for_registered_user() -> None:
+    email = f"reset-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    original_hash = auth_service.user_repository.get_by_email(email)["password_hash"]
+
+    forgot_response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": email},
+    )
+    assert forgot_response.status_code == 200
+    assert forgot_response.json()["status"] == "ok"
+
+    token_record = next(
+        (
+            entry
+            for entry in _USERS[email].get("password_reset_tokens", [])
+            if entry.get("used") is False
+        ),
+        None,
+    )
+    assert token_record is not None
+    token = token_record["token"]
+
+    new_password = "NewStrongPass!456"
+    reset_response = client.post(
+        "/api/v1/auth/reset-password",
+        json={"email": email, "token": token, "new_password": new_password},
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["status"] == "password_reset"
+
+    stored_user = auth_service.user_repository.get_by_email(email)
+    assert stored_user is not None
+    assert stored_user["password_hash"] != original_hash
+
+    next_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": new_password},
+    )
+    assert next_login.status_code == 200
 
 
 def test_user_can_manage_profile_preferences() -> None:

@@ -207,6 +207,18 @@ def ensure_auth_sessions_table() -> None:
 def ensure_migration_bootstrap_tables() -> None:
     try:
         engine = get_engine()
+        reset_token_ddl = """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used_at TEXT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        with engine.begin() as connection:
+            connection.execute(text(reset_token_ddl))
         if uses_mysql():
             ddl_statements = [
                 """
@@ -261,6 +273,18 @@ def ensure_migration_bootstrap_tables() -> None:
                     INDEX idx_audit_actor (actor_email),
                     INDEX idx_audit_resource (resource),
                     INDEX idx_audit_correlation (correlation_id)
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    user_email VARCHAR(255) NOT NULL,
+                    token_hash VARCHAR(255) NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_reset_tokens_user_email (user_email),
+                    INDEX idx_reset_tokens_token_hash (token_hash)
                 )
                 """,
                 """
@@ -403,6 +427,16 @@ def ensure_migration_bootstrap_tables() -> None:
                 )
                 """,
                 """
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT NOT NULL,
+                    token_hash TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
                 CREATE TABLE IF NOT EXISTS event_outbox (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event_name TEXT NOT NULL,
@@ -489,6 +523,16 @@ def ensure_migration_bootstrap_tables() -> None:
         sqlite_url = _fallback_to_local_sqlite()
         engine = create_engine(sqlite_url, future=True, pool_pre_ping=True)
         with engine.begin() as connection:
+            connection.execute(text("""
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT NOT NULL,
+                    token_hash TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
             for ddl in [
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -536,6 +580,16 @@ def ensure_migration_bootstrap_tables() -> None:
                     after_payload TEXT NULL,
                     reason TEXT NULL,
                     correlation_id TEXT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT NOT NULL,
+                    token_hash TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """,

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import socket
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -299,6 +300,16 @@ class LoginRequest(BaseModel):
 class VerifyOTPRequest(BaseModel):
     email: str
     otp: str = Field(min_length=4, max_length=6)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=1)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=1)
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
 
 
 class TokenRefreshRequest(BaseModel):
@@ -756,6 +767,10 @@ def _generate_otp() -> str:
     return f"{secrets.randbelow(900000) + 100000:06d}"
 
 
+def _generate_reset_token() -> str:
+    return secrets.token_urlsafe(24)
+
+
 def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
     normalized_identifier = identifier.strip().lower()
     for user in _USERS.values():
@@ -770,6 +785,18 @@ def _find_user_by_identifier(identifier: str) -> dict[str, Any] | None:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _coerce_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _cleanup_expired_sessions() -> None:
@@ -1093,21 +1120,47 @@ def readiness() -> JSONResponse:
     app_env = (os.environ.get("APP_ENV") or "local").strip().lower()
     local_runtime = app_env in {"local", "development", "dev", "test"}
 
+    def _database_ready() -> bool:
+        if not database_url:
+            return False
+        try:
+            ensure_database_ready()
+            return True
+        except Exception:
+            return False
+
+    def _redis_ready() -> bool:
+        if not cache_url:
+            return False
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(cache_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 6379
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except Exception:
+            return False
+
+    database_ready = _database_ready()
+    cache_ready = _redis_ready()
+    object_storage_ready = bool(object_storage_config) or (local_runtime and not object_storage_config)
+
     dependency_status = {
         "database": {
-            "status": "ready" if database_url else "not_configured",
+            "status": "ready" if database_ready else "not_configured",
             "required": True,
-            "evidence": "DATABASE_URL configured" if database_url else "DATABASE_URL is missing from environment",
+            "evidence": "DATABASE_URL configured and reachable" if database_ready else "DATABASE_URL is missing or unreachable",
         },
         "cache": {
-            "status": "ready" if cache_url else "not_configured",
+            "status": "ready" if cache_ready else "not_configured",
             "required": True,
-            "evidence": "REDIS_URL configured" if cache_url else "REDIS_URL is missing from environment",
+            "evidence": "REDIS_URL configured and reachable" if cache_ready else "REDIS_URL is missing or unreachable",
         },
         "object_storage": {
-            "status": "ready" if object_storage_config else ("not_required" if local_runtime else "not_configured"),
+            "status": "ready" if object_storage_ready else ("not_required" if local_runtime else "not_configured"),
             "required": not local_runtime,
-            "evidence": "Object storage endpoint configured" if object_storage_config else (
+            "evidence": "Object storage endpoint configured" if object_storage_ready else (
                 "Local development allows missing object storage" if local_runtime else "Object storage environment is not configured"
             ),
         },
@@ -1243,13 +1296,21 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     if not user.get("otp_code"):
         return {"success": True, "verified": True, "message": "User is already verified."}
 
-    if expires_at and datetime.fromisoformat(expires_at) <= _utc_now():
+    if expires_at and _coerce_datetime(expires_at) <= _utc_now():
         user["otp_code"] = None
         user["otp_expires_at"] = None
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"otp_code": None, "otp_expires_at": None},
+        )
         raise HTTPException(status_code=401, detail="OTP expired")
 
     if otp_code != user.get("otp_code"):
         user["otp_attempts"] = int(user.get("otp_attempts", 0)) + 1
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"otp_attempts": user["otp_attempts"]},
+        )
         raise HTTPException(status_code=401, detail="Incorrect OTP")
 
     user["status"] = "active"
@@ -1257,7 +1318,90 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     user["otp_code"] = None
     user["otp_expires_at"] = None
     user["otp_attempts"] = 0
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"status": "active", "verified": True, "otp_code": None, "otp_expires_at": None, "otp_attempts": 0},
+    )
     return {"success": True, "verified": True, "message": "Account verified successfully."}
+
+
+@app.post("/api/v1/auth/forgot-password", tags=["auth"])
+def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
+    email = _normalize_email(payload.email)
+    if email is None:
+        raise HTTPException(status_code=422, detail="Email is required")
+
+    user = _USERS.get(email) or _find_user_by_identifier(email)
+    if user is None:
+        return {"status": "ok", "message": "Password reset request accepted."}
+
+    reset_tokens = user.setdefault("password_reset_tokens", [])
+    for entry in list(reset_tokens):
+        expires_at = entry.get("expires_at")
+        if not entry.get("used") and expires_at and datetime.fromisoformat(expires_at) > _utc_now():
+            entry["used"] = True
+
+    token = _generate_reset_token()
+    token_hash = _hash_token_value(token)
+    expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
+    reset_tokens.append({
+        "token": token,
+        "token_hash": token_hash,
+        "used": False,
+        "expires_at": expires_at,
+        "created_at": _utc_now().isoformat(),
+    })
+
+    auth_service.user_repository.add_password_reset_token(email, token_hash, expires_at)
+    return {"status": "ok", "message": "Password reset request accepted.", "token": token}
+
+
+@app.post("/api/v1/auth/reset-password", tags=["auth"])
+def reset_password(payload: ResetPasswordRequest) -> dict[str, str]:
+    email = _normalize_email(payload.email)
+    if email is None:
+        raise HTTPException(status_code=422, detail="Email is required")
+
+    user = _USERS.get(email) or _find_user_by_identifier(email)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    token_hash = _hash_token_value(payload.token)
+    stored_tokens = auth_service.user_repository.list_password_reset_tokens(email)
+    valid_stored_token = next(
+        (
+            entry
+            for entry in stored_tokens
+            if entry.get("token_hash") == token_hash
+            and entry.get("used_at") is None
+            and entry.get("expires_at")
+            and datetime.fromisoformat(str(entry["expires_at"])) > _utc_now()
+        ),
+        None,
+    )
+    memory_tokens = user.get("password_reset_tokens", [])
+    match = next(
+        (
+            entry for entry in memory_tokens
+            if entry.get("token_hash") == token_hash and not entry.get("used")
+            and entry.get("expires_at") and datetime.fromisoformat(entry["expires_at"]) > _utc_now()
+        ),
+        None,
+    )
+    if valid_stored_token is None and match is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired reset token")
+
+    salt, password_hash = _hash_password(payload.new_password)
+    user["password_salt"] = salt
+    user["password_hash"] = password_hash
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"password_salt": salt, "password_hash": password_hash},
+    )
+    auth_service.user_repository.mark_password_reset_token_used(email, token_hash)
+    if match is not None:
+        match["used"] = True
+    return {"status": "password_reset", "message": "Password updated successfully."}
 
 
 @app.post("/api/v1/auth/login", tags=["auth"])
@@ -1284,14 +1428,27 @@ def login_user(request: Request, payload: LoginRequest, response: Response) -> d
 
         if failed_attempts >= ACCOUNT_LOCKOUT_THRESHOLD:
             user["status"] = "locked"
+            auth_service.user_repository.update_user(
+                user["email"],
+                {"status": "locked", "failed_login_attempts": failed_attempts},
+            )
             raise HTTPException(status_code=status.HTTP_423_LOCKED, detail="Account locked")
 
         if failed_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            auth_service.user_repository.update_user(
+                user["email"],
+                {"failed_login_attempts": failed_attempts},
+            )
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
 
+        auth_service.user_repository.update_user(
+            user["email"],
+            {"failed_login_attempts": failed_attempts},
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user["failed_login_attempts"] = 0
+    auth_service.user_repository.update_user(user["email"], {"failed_login_attempts": 0})
     _invalidate_user_sessions(user["email"])
     tokens = auth_service.issue_tokens(user["email"], user["role"])
     access_token = tokens["access_token"]
@@ -1688,6 +1845,17 @@ def unlock_user(user_email: str, user: dict[str, Any] = Depends(_get_current_use
     target["otp_code"] = None
     target["otp_expires_at"] = None
     target["otp_attempts"] = 0
+    auth_service.user_repository.update_user(
+        user_email,
+        {
+            "status": "active",
+            "verified": True,
+            "failed_login_attempts": 0,
+            "otp_code": None,
+            "otp_expires_at": None,
+            "otp_attempts": 0,
+        },
+    )
 
     _record_audit(
         "auth.account_unlocked",

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { apiFetch } from "../../lib/api";
@@ -66,6 +67,39 @@ export default function LoginPage() {
           <button className="primary-btn" type="submit">
             Continue
           </button>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              marginTop: 8,
+              fontSize: 14,
+            }}
+          >
+            <Link
+              href="/forgot-password"
+              style={{
+                color: "#1d4ed8",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              Forgot password?
+            </Link>
+
+            <Link
+              href="/register"
+              style={{
+                color: "#1d4ed8",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              Register new user
+            </Link>
+          </div>
         </form>
       </section>
     </main>

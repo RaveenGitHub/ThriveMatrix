@@ -161,3 +161,34 @@ class UserRepository:
                 text(f"UPDATE users SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE email = :email"),
                 params,
             )
+
+    def add_password_reset_token(self, user_email: str, token_hash: str, expires_at: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO password_reset_tokens (user_email, token_hash, expires_at, used_at, created_at)
+                    VALUES (:user_email, :token_hash, :expires_at, NULL, CURRENT_TIMESTAMP)
+                    """
+                ),
+                {"user_email": user_email, "token_hash": token_hash, "expires_at": expires_at},
+            )
+
+    def list_password_reset_tokens(self, user_email: str) -> list[dict[str, Any]]:
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT user_email, token_hash, expires_at, used_at, created_at FROM password_reset_tokens WHERE user_email = :user_email ORDER BY created_at DESC"
+                ),
+                {"user_email": user_email},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def mark_password_reset_token_used(self, user_email: str, token_hash: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_email = :user_email AND token_hash = :token_hash AND used_at IS NULL"
+                ),
+                {"user_email": user_email, "token_hash": token_hash},
+            )
