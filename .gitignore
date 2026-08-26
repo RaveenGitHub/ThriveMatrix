@@ -5,6 +5,8 @@ api/.venv/
 api/.pytest_cache/
 api/**/__pycache__/
 *.pyc
+*.db
+api/data/*.db
 .env
 coverage/
 docs/
