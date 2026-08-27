@@ -113,7 +113,7 @@ def test_goal_linked_investment_reports_current_value_and_gain_loss() -> None:
         "/api/v1/goals",
         json={
             "name": "Home Down Payment",
-            "category": "safety",
+            "category": "home_purchase",
             "target_amount": 500000,
             "target_currency": "INR",
             "target_date": "2028-12-31",
@@ -162,7 +162,7 @@ def test_goal_linked_investment_must_belong_to_same_user() -> None:
         "/api/v1/goals",
         json={
             "name": "Alice Home Fund",
-            "category": "safety",
+            "category": "home_purchase",
             "target_amount": 400000,
             "target_currency": "INR",
             "target_date": "2028-10-31",

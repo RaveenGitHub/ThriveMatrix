@@ -822,7 +822,7 @@ def test_audit_records_capture_change_context() -> None:
         headers={"Authorization": f"Bearer {token}"},
         json={
             "name": "Emergency cushion",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 25000,
             "target_currency": "INR",
             "target_date": "2027-12-31",

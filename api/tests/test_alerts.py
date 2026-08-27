@@ -30,7 +30,7 @@ def test_user_can_list_goal_and_policy_alerts() -> None:
         "/api/v1/goals",
         json={
             "name": "Emergency Fund",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 100000,
             "target_currency": "INR",
             "target_date": "2020-01-01",

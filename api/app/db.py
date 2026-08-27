@@ -7,6 +7,29 @@ from sqlalchemy import create_engine, exc, text
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.engine.url import make_url
 
+GOAL_CATEGORY_CATALOG: list[dict[str, str | int]] = [
+    {"slug": "emergency_fund", "label": "Emergency Fund", "sort_order": 1},
+    {"slug": "home_purchase", "label": "Home Purchase", "sort_order": 2},
+    {"slug": "home_renovation", "label": "Home Renovation", "sort_order": 3},
+    {"slug": "child_education", "label": "Child Education", "sort_order": 4},
+    {"slug": "higher_education", "label": "Higher Education", "sort_order": 5},
+    {"slug": "marriage", "label": "Marriage / Wedding", "sort_order": 6},
+    {"slug": "retirement", "label": "Retirement", "sort_order": 7},
+    {"slug": "vehicle", "label": "Vehicle Purchase", "sort_order": 8},
+    {"slug": "travel", "label": "Travel / Vacation", "sort_order": 9},
+    {"slug": "international_travel", "label": "International Travel", "sort_order": 10},
+    {"slug": "healthcare", "label": "Healthcare", "sort_order": 11},
+    {"slug": "insurance_premium", "label": "Insurance Premium", "sort_order": 12},
+    {"slug": "parents_care", "label": "Parents Care", "sort_order": 13},
+    {"slug": "family_support", "label": "Family Support", "sort_order": 14},
+    {"slug": "business_fund", "label": "Business Fund", "sort_order": 15},
+    {"slug": "wealth_creation", "label": "Wealth Creation", "sort_order": 16},
+    {"slug": "debt_repayment", "label": "Debt Repayment", "sort_order": 17},
+    {"slug": "skill_upgrade", "label": "Skill Upgrade", "sort_order": 18},
+    {"slug": "gifting", "label": "Gifting / Legacy", "sort_order": 19},
+    {"slug": "hobby_or_leisure", "label": "Hobby / Leisure", "sort_order": 20},
+]
+
 
 def normalize_db_datetime(value: str | None) -> str | None:
     if value is None:
@@ -202,6 +225,66 @@ def ensure_auth_sessions_table() -> None:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """))
+
+
+def ensure_goal_category_seed() -> None:
+    engine = get_engine()
+    if uses_mysql():
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS goal_categories (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                slug VARCHAR(120) NOT NULL UNIQUE,
+                label VARCHAR(200) NOT NULL,
+                sort_order INT NOT NULL,
+                is_active TINYINT NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+    else:
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS goal_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+
+    with engine.begin() as connection:
+        connection.execute(text(create_table_sql))
+
+        if uses_mysql():
+            for category in GOAL_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT IGNORE INTO goal_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
+        else:
+            for category in GOAL_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO goal_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
 
 
 def ensure_migration_bootstrap_tables() -> None:

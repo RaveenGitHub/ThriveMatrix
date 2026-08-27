@@ -23,6 +23,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import (
+    GOAL_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
     ensure_database_ready,
     ensure_migration_bootstrap_tables,
@@ -363,6 +364,12 @@ class UserPreferencesRequest(BaseModel):
     email_notifications: bool = True
 
 
+APPROVED_GOAL_CATEGORIES = tuple(category["slug"] for category in GOAL_CATEGORY_CATALOG)
+APPROVED_GOAL_CATEGORY_LABELS = {
+    category["slug"]: category["label"] for category in GOAL_CATEGORY_CATALOG
+}
+
+
 class GoalCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=100)
@@ -371,6 +378,15 @@ class GoalCreateRequest(BaseModel):
     target_date: str
     status: str = Field(default="active")
     priority: str = Field(default="medium")
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_GOAL_CATEGORIES:
+            allowed = ", ".join(APPROVED_GOAL_CATEGORIES)
+            raise ValueError(f"category must be one of: {allowed}")
+        return normalized
 
     @field_validator("target_date")
     @classmethod
@@ -406,6 +422,17 @@ class GoalUpdateRequest(BaseModel):
     target_date: str | None = None
     status: str | None = None
     priority: str | None = None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_GOAL_CATEGORIES:
+            allowed = ", ".join(APPROVED_GOAL_CATEGORIES)
+            raise ValueError(f"category must be one of: {allowed}")
+        return normalized
 
     @field_validator("target_date")
     @classmethod

@@ -30,6 +30,29 @@ type GoalProgress = {
   status: string;
 };
 
+const GOAL_CATEGORY_OPTIONS = [
+  { value: "emergency_fund", label: "Emergency Fund" },
+  { value: "home_purchase", label: "Home Purchase" },
+  { value: "home_renovation", label: "Home Renovation" },
+  { value: "child_education", label: "Child Education" },
+  { value: "higher_education", label: "Higher Education" },
+  { value: "marriage", label: "Marriage / Wedding" },
+  { value: "retirement", label: "Retirement" },
+  { value: "vehicle", label: "Vehicle Purchase" },
+  { value: "travel", label: "Travel / Vacation" },
+  { value: "international_travel", label: "International Travel" },
+  { value: "healthcare", label: "Healthcare" },
+  { value: "insurance_premium", label: "Insurance Premium" },
+  { value: "parents_care", label: "Parents Care" },
+  { value: "family_support", label: "Family Support" },
+  { value: "business_fund", label: "Business Fund" },
+  { value: "wealth_creation", label: "Wealth Creation" },
+  { value: "debt_repayment", label: "Debt Repayment" },
+  { value: "skill_upgrade", label: "Skill Upgrade" },
+  { value: "gifting", label: "Gifting / Legacy" },
+  { value: "hobby_or_leisure", label: "Hobby / Leisure" },
+];
+
 const indianCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -46,7 +69,7 @@ export default function GoalsPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     name: "",
-    category: "general",
+    category: "emergency_fund",
     target_amount: "",
     target_date: new Date().toISOString().slice(0, 10),
   });
@@ -138,7 +161,7 @@ export default function GoalsPage() {
 
       setForm({
         name: "",
-        category: "general",
+        category: "emergency_fund",
         target_amount: "",
         target_date: new Date().toISOString().slice(0, 10),
       });
@@ -249,10 +272,11 @@ export default function GoalsPage() {
                       }))
                     }
                   >
-                    <option value="general">General</option>
-                    <option value="housing">Housing</option>
-                    <option value="education">Education</option>
-                    <option value="retirement">Retirement</option>
+                    {GOAL_CATEGORY_OPTIONS.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
 

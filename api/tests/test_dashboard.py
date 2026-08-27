@@ -28,7 +28,7 @@ def test_dashboard_exposes_summary_metrics() -> None:
         "/api/v1/goals",
         json={
             "name": "Emergency Fund",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 100000,
             "target_currency": "INR",
             "target_date": "2027-12-31",
@@ -92,7 +92,7 @@ def test_dashboard_tracks_event_outbox_and_replay_status() -> None:
         "/api/v1/goals",
         json={
             "name": "Emergency Event Goal",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 50000,
             "target_currency": "INR",
             "target_date": "2027-12-31",

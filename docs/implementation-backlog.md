@@ -60,6 +60,33 @@ Release governance status: PENDING approval for retention/deletion policy, prici
 - Successful submission creates only one investment record for the authenticated user and links to the selected goal only when a valid goal is chosen.
 - This requirement is enforced both in the frontend UX and in the backend contract validation for `amount_invested`, `units`, and `unit_value`.
 
+## Approved Indian Goal Categories
+
+The platform is required to use one canonical, India-first goal taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
+
+- Emergency Fund
+- Home Purchase
+- Home Renovation
+- Child Education
+- Higher Education
+- Marriage / Wedding
+- Retirement
+- Vehicle Purchase
+- Travel / Vacation
+- International Travel
+- Healthcare
+- Insurance Premium
+- Parents Care
+- Family Support
+- Business Fund
+- Wealth Creation
+- Debt Repayment
+- Skill Upgrade
+- Gifting / Legacy
+- Hobby / Leisure
+
+These values must be treated as the only valid goal category options in the goal creation form and backend contract validation. The `goal_categories` seed table in the local database stores the same catalog so the UI and persistence layer remain aligned.
+
 BLOCKED -> READY after the blocker is resolved and revalidated
 Any state -> DEFERRED only with an approved decision record and impact assessment
 
