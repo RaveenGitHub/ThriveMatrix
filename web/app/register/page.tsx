@@ -72,88 +72,104 @@ export default function RegisterPage() {
 
   return (
     <main className="page-shell">
-      <section className="panel" style={{ maxWidth: 520, margin: "8rem auto" }}>
+      <section className="panel auth-card">
         <p className="eyebrow">CREATE ACCOUNT</p>
         <h2>Register new user</h2>
 
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
-          <label>
+        <form onSubmit={handleSubmit} className="auth-form overflow-safe">
+          <label className="overflow-safe">
             <span>Full name</span>
             <input
+              className="safe-input"
               value={form.name}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, name: event.target.value }))
-              }
-              placeholder="Your full name"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
-            />
-          </label>
-
-          <label>
-            <span>Email</span>
-            <input
-              type="email"
-              value={form.email}
+              maxLength={120}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  email: event.target.value,
+                  name: event.target.value.slice(0, 120),
+                }))
+              }
+              placeholder="Your full name"
+            />
+          </label>
+
+          <label className="overflow-safe">
+            <span>Email</span>
+            <input
+              className="safe-input"
+              type="email"
+              value={form.email}
+              maxLength={254}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  email: event.target.value.slice(0, 254),
                 }))
               }
               placeholder="you@example.com"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
             />
           </label>
 
-          <label>
+          <label className="overflow-safe">
             <span>Phone</span>
             <input
+              className="safe-input"
               value={form.phone}
+              maxLength={20}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  phone: event.target.value,
+                  phone: event.target.value.slice(0, 20),
                 }))
               }
               placeholder="9876543210"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
             />
           </label>
 
-          <label>
+          <label className="overflow-safe">
             <span>Username</span>
             <input
+              className="safe-input"
               value={form.username}
+              maxLength={40}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  username: event.target.value,
+                  username: event.target.value.slice(0, 40),
                 }))
               }
               placeholder="username"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
             />
           </label>
 
-          <label>
+          <label className="overflow-safe">
             <span>Password</span>
             <input
+              className="safe-input"
               type="password"
               value={form.password}
+              maxLength={128}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  password: event.target.value,
+                  password: event.target.value.slice(0, 128),
                 }))
               }
               placeholder="Create a strong password"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
               required
             />
           </label>
 
-          {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
-          {success ? <p style={{ color: "#067647" }}>{success}</p> : null}
+          {error ? (
+            <p className="message auth-message" style={{ color: "#b42318" }}>
+              {error}
+            </p>
+          ) : null}
+          {success ? (
+            <p className="message auth-message" style={{ color: "#067647" }}>
+              {success}
+            </p>
+          ) : null}
 
           <button className="primary-btn" type="submit">
             Create account

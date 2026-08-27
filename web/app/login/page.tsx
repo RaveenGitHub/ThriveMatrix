@@ -35,45 +35,51 @@ export default function LoginPage() {
 
   return (
     <main className="page-shell">
-      <section className="panel" style={{ maxWidth: 480, margin: "8rem auto" }}>
+      <section className="panel auth-card">
         <p className="eyebrow">AUTHENTICATION</p>
         <h2>Sign in</h2>
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
-          <label>
+        <form onSubmit={handleSubmit} className="auth-form overflow-safe">
+          <label className="overflow-safe">
             <span>Email</span>
             <input
+              className="safe-input"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              maxLength={254}
+              onChange={(event) => setEmail(event.target.value.slice(0, 254))}
               placeholder="you@example.com"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
               required
             />
           </label>
-          <label>
+          <label className="overflow-safe">
             <span>Password</span>
             <input
+              className="safe-input"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              maxLength={128}
+              onChange={(event) =>
+                setPassword(event.target.value.slice(0, 128))
+              }
               placeholder="Password"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
               required
             />
           </label>
 
-          {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
+          {error ? (
+            <p className="message auth-message" style={{ color: "#b42318" }}>
+              {error}
+            </p>
+          ) : null}
 
           <button className="primary-btn" type="submit">
             Continue
           </button>
 
           <div
+            className="auth-links responsive-stack"
             style={{
-              display: "flex",
               justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
               marginTop: 8,
               fontSize: 14,
             }}

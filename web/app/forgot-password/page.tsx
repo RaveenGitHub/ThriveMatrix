@@ -97,28 +97,34 @@ export default function ForgotPasswordPage() {
 
   return (
     <main className="page-shell">
-      <section className="panel" style={{ maxWidth: 520, margin: "8rem auto" }}>
+      <section className="panel auth-card">
         <p className="eyebrow">ACCOUNT RECOVERY</p>
         <h2>Forgot password</h2>
 
-        <form
-          onSubmit={handleRequestReset}
-          style={{ display: "grid", gap: 16 }}
-        >
-          <label>
+        <form onSubmit={handleRequestReset} className="auth-form overflow-safe">
+          <label className="overflow-safe">
             <span>Email address</span>
             <input
+              className="safe-input"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              maxLength={254}
+              onChange={(event) => setEmail(event.target.value.slice(0, 254))}
               placeholder="you@example.com"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
               required
             />
           </label>
 
-          {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
-          {message ? <p style={{ color: "#067647" }}>{message}</p> : null}
+          {error ? (
+            <p className="message auth-message" style={{ color: "#b42318" }}>
+              {error}
+            </p>
+          ) : null}
+          {message ? (
+            <p className="message auth-message" style={{ color: "#067647" }}>
+              {message}
+            </p>
+          ) : null}
 
           <button className="primary-btn" type="submit">
             Send reset request
@@ -128,27 +134,32 @@ export default function ForgotPasswordPage() {
         {resetTokenReceived ? (
           <form
             onSubmit={handleResetPassword}
-            style={{ display: "grid", gap: 16, marginTop: 20 }}
+            className="auth-form overflow-safe"
+            style={{ marginTop: 20 }}
           >
-            <label>
+            <label className="overflow-safe">
               <span>Reset token</span>
               <input
+                className="safe-input"
                 value={token}
-                onChange={(event) => setToken(event.target.value)}
+                maxLength={256}
+                onChange={(event) => setToken(event.target.value.slice(0, 256))}
                 placeholder="Paste the reset token"
-                style={{ width: "100%", padding: 10, marginTop: 8 }}
                 required
               />
             </label>
 
-            <label>
+            <label className="overflow-safe">
               <span>New password</span>
               <input
+                className="safe-input"
                 type="password"
                 value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
+                maxLength={128}
+                onChange={(event) =>
+                  setNewPassword(event.target.value.slice(0, 128))
+                }
                 placeholder="Enter a new password"
-                style={{ width: "100%", padding: 10, marginTop: 8 }}
                 required
               />
             </label>

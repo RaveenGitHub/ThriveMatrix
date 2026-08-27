@@ -32,7 +32,7 @@ def test_user_can_create_and_list_goals() -> None:
         "/api/v1/goals",
         json={
             "name": "Emergency Fund",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 100000,
             "target_currency": "INR",
             "target_date": "2027-12-31",
@@ -70,7 +70,7 @@ def test_goal_amount_must_be_positive() -> None:
         "/api/v1/goals",
         json={
             "name": "Bad Goal",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 0,
             "target_currency": "INR",
             "target_date": "2027-12-31",
@@ -81,6 +81,48 @@ def test_goal_amount_must_be_positive() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_goal_categories_are_restricted_to_approved_indian_catalog() -> None:
+    email = f"goals-categories-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    token = _login(email, password)
+
+    valid_response = client.post(
+        "/api/v1/goals",
+        json={
+            "name": "Home Purchase",
+            "category": "home_purchase",
+            "target_amount": 1200000,
+            "target_currency": "INR",
+            "target_date": "2029-12-31",
+            "status": "active",
+            "priority": "high",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert valid_response.status_code == 201
+
+    invalid_response = client.post(
+        "/api/v1/goals",
+        json={
+            "name": "Random Goal",
+            "category": "mystery_goal",
+            "target_amount": 75000,
+            "target_currency": "INR",
+            "target_date": "2028-06-30",
+            "status": "active",
+            "priority": "medium",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert invalid_response.status_code == 422
 
 
 def test_users_only_see_their_own_goals() -> None:
@@ -98,7 +140,7 @@ def test_users_only_see_their_own_goals() -> None:
         "/api/v1/goals",
         json={
             "name": "Alice Goal",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 25000,
             "target_currency": "INR",
             "target_date": "2027-06-30",
@@ -125,7 +167,7 @@ def test_user_can_update_and_archive_goals_and_view_progress() -> None:
         "/api/v1/goals",
         json={
             "name": "Emergency Fund",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 100000,
             "target_currency": "INR",
             "target_date": "2027-12-31",
@@ -183,7 +225,7 @@ def test_goal_progress_is_based_on_linked_investments_and_underfunded_alerts() -
         "/api/v1/goals",
         json={
             "name": "Home Renovation",
-            "category": "safety",
+            "category": "home_renovation",
             "target_amount": 120000,
             "target_currency": "INR",
             "target_date": "2028-12-31",
@@ -272,7 +314,7 @@ def test_unassigned_investments_use_default_goal_and_goal_completion_requires_10
         "/api/v1/goals",
         json={
             "name": "Home Purchase",
-            "category": "safety",
+            "category": "home_purchase",
             "target_amount": 100000,
             "target_currency": "INR",
             "target_date": "2028-12-31",
@@ -361,7 +403,7 @@ def test_goal_validation_rejects_invalid_dates_and_enums() -> None:
         headers={"Authorization": f"Bearer {token}"},
         json={
             "name": "Broken Goal",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 20000,
             "target_currency": "INR",
             "target_date": "not-a-date",
@@ -376,7 +418,7 @@ def test_goal_validation_rejects_invalid_dates_and_enums() -> None:
         headers={"Authorization": f"Bearer {token}"},
         json={
             "name": "Broken Status",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 20000,
             "target_currency": "INR",
             "target_date": "2027-12-31",
@@ -402,7 +444,7 @@ def test_users_cannot_update_or_delete_other_users_goals() -> None:
         headers={"Authorization": f"Bearer {alice_token}"},
         json={
             "name": "Alice Goal",
-            "category": "safety",
+            "category": "emergency_fund",
             "target_amount": 10000,
             "target_currency": "INR",
             "target_date": "2027-01-10",

@@ -23,6 +23,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import (
+    GOAL_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
     ensure_database_ready,
     ensure_migration_bootstrap_tables,
@@ -267,6 +268,44 @@ class RegisterRequest(BaseModel):
     require_verification: bool = False
     role: Literal["user", "admin"] = "user"
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Z]", value):
+            raise ValueError("Password must include at least one uppercase letter")
+        if not re.search(r"\d", value):
+            raise ValueError("Password must include at least one number")
+        return value
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = re.sub(r"\D", "", value)
+        if len(cleaned) < 10 or len(cleaned) > 15:
+            raise ValueError("Phone number must contain 10 to 15 digits")
+        return cleaned
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{3,40}", stripped):
+            raise ValueError("Username must be 3–40 characters and contain only letters, numbers, dots, underscores, or dashes")
+        return stripped.lower()
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return value.strip().lower()
+
     @model_validator(mode="after")
     def validate_identity_and_username(self) -> "RegisterRequest":
         has_email = bool((self.email or "").strip())
@@ -279,6 +318,9 @@ class RegisterRequest(BaseModel):
 
         if self.preferred_currency:
             self.preferred_currency = self.preferred_currency.upper()
+
+        if self.email and not _validate_email(self.email):
+            raise ValueError("Invalid email")
 
         return self
 
@@ -322,6 +364,12 @@ class UserPreferencesRequest(BaseModel):
     email_notifications: bool = True
 
 
+APPROVED_GOAL_CATEGORIES = tuple(category["slug"] for category in GOAL_CATEGORY_CATALOG)
+APPROVED_GOAL_CATEGORY_LABELS = {
+    category["slug"]: category["label"] for category in GOAL_CATEGORY_CATALOG
+}
+
+
 class GoalCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=100)
@@ -330,6 +378,15 @@ class GoalCreateRequest(BaseModel):
     target_date: str
     status: str = Field(default="active")
     priority: str = Field(default="medium")
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_GOAL_CATEGORIES:
+            allowed = ", ".join(APPROVED_GOAL_CATEGORIES)
+            raise ValueError(f"category must be one of: {allowed}")
+        return normalized
 
     @field_validator("target_date")
     @classmethod
@@ -365,6 +422,17 @@ class GoalUpdateRequest(BaseModel):
     target_date: str | None = None
     status: str | None = None
     priority: str | None = None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_GOAL_CATEGORIES:
+            allowed = ", ".join(APPROVED_GOAL_CATEGORIES)
+            raise ValueError(f"category must be one of: {allowed}")
+        return normalized
 
     @field_validator("target_date")
     @classmethod
@@ -765,6 +833,10 @@ def _normalize_username(username: str | None) -> str | None:
 
 def _generate_otp() -> str:
     return f"{secrets.randbelow(900000) + 100000:06d}"
+
+
+def _generate_activation_token() -> str:
+    return secrets.token_urlsafe(24)
 
 
 def _generate_reset_token() -> str:
@@ -1234,7 +1306,7 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
     if email and not _validate_email(email):
         raise HTTPException(status_code=422, detail="Invalid email")
 
-    if phone and len(phone) < 10:
+    if phone and not re.fullmatch(r"\d{10,15}", phone):
         raise HTTPException(status_code=422, detail="Invalid phone number")
 
     if username is None:
@@ -1248,9 +1320,19 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
 
     user_email = email or f"{phone}@phone.local"
     salt, password_hash = _hash_password(payload.password)
-    otp_code = _generate_otp() if payload.require_verification else None
-    otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat() if payload.require_verification else None
     verification_required = payload.require_verification
+    otp_code = None
+    otp_expires_at = None
+    activation_token = None
+    activation_expires_at = None
+
+    if verification_required:
+        otp_code = _generate_otp()
+        otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat()
+        if email:
+            activation_token = _generate_activation_token()
+            activation_expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
+
     user_status = "pending_verification" if verification_required else "active"
     user_verified = not verification_required
 
@@ -1266,6 +1348,8 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
         "preferred_currency": payload.preferred_currency.upper(),
         "otp_code": otp_code,
         "otp_expires_at": otp_expires_at,
+        "activation_token": activation_token,
+        "activation_expires_at": activation_expires_at,
         "otp_attempts": 0,
         "failed_login_attempts": 0,
     }
@@ -1273,12 +1357,18 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
     _USERS[user_email] = user_record
     _ensure_default_goal_for_user(user_email)
 
-    return {
+    response_payload: dict[str, object] = {
         "user": {"email": user_email, "username": username, "role": payload.role},
         "message": "Registration successful",
         "verification_required": verification_required,
-        "otp_code": otp_code,
     }
+    if verification_required:
+        response_payload["otp_code"] = otp_code
+        if email:
+            response_payload["activation_token"] = activation_token
+            response_payload["activation_url"] = f"http://localhost:3000/verify-registration?email={email}&token={activation_token}"
+
+    return response_payload
 
 
 @app.post("/api/v1/auth/verify-otp", tags=["auth"])
@@ -1325,6 +1415,40 @@ def verify_otp(payload: VerifyOTPRequest) -> dict[str, Any]:
     return {"success": True, "verified": True, "message": "Account verified successfully."}
 
 
+@app.post("/api/v1/auth/verify-registration", tags=["auth"])
+def verify_registration(payload: dict[str, str]) -> dict[str, Any]:
+    email = _normalize_email(payload.get("email"))
+    token = (payload.get("token") or "").strip()
+
+    if email is None:
+        raise HTTPException(status_code=422, detail="Email is required")
+    if not token:
+        raise HTTPException(status_code=422, detail="Activation token is required")
+
+    user = _USERS.get(email) or _find_user_by_identifier(email)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    stored_token = user.get("activation_token")
+    expires_at = user.get("activation_expires_at")
+    if stored_token is None:
+        return {"success": True, "verified": True, "message": "User is already verified."}
+
+    if expires_at and _coerce_datetime(expires_at) <= _utc_now():
+        user["activation_token"] = None
+        user["activation_expires_at"] = None
+        raise HTTPException(status_code=401, detail="Activation link expired")
+
+    if token != stored_token:
+        raise HTTPException(status_code=401, detail="Invalid activation token")
+
+    user["status"] = "active"
+    user["verified"] = True
+    user["activation_token"] = None
+    user["activation_expires_at"] = None
+    return {"success": True, "verified": True, "message": "Account verified successfully."}
+
+
 @app.post("/api/v1/auth/forgot-password", tags=["auth"])
 def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
     email = _normalize_email(payload.email)
@@ -1333,7 +1457,7 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
 
     user = _USERS.get(email) or _find_user_by_identifier(email)
     if user is None:
-        return {"status": "ok", "message": "Password reset request accepted."}
+        raise HTTPException(status_code=404, detail="Email not registered")
 
     reset_tokens = user.setdefault("password_reset_tokens", [])
     for entry in list(reset_tokens):
@@ -1353,7 +1477,7 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
     })
 
     auth_service.user_repository.add_password_reset_token(email, token_hash, expires_at)
-    return {"status": "ok", "message": "Password reset request accepted.", "token": token}
+    return {"status": "ok", "message": "Password reset request accepted."}
 
 
 @app.post("/api/v1/auth/reset-password", tags=["auth"])
@@ -1419,7 +1543,9 @@ def login_user(request: Request, payload: LoginRequest, response: Response) -> d
     if user.get("status") == "locked":
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail="Account locked")
 
-    if user.get("status") in {"pending_verification", "unverified"}:
+    if user.get("status") in {"pending_verification", "unverified", "inactive"} or not (
+        bool(user.get("verified")) or user.get("status") == "active"
+    ):
         raise HTTPException(status_code=401, detail="Account not verified")
 
     if not auth_service.user_can_login(user, payload.password):

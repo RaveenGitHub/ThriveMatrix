@@ -241,23 +241,26 @@ export default function PortfolioPage() {
             </div>
 
             <div className="field-grid" style={{ marginBottom: 16 }}>
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Holding name</span>
                 <input
+                  className="safe-input"
                   value={form.name}
+                  maxLength={160}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      name: event.target.value,
+                      name: event.target.value.slice(0, 160),
                     }))
                   }
                   placeholder="e.g. Nifty Index"
                 />
               </label>
 
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Asset class</span>
                 <select
+                  className="safe-select"
                   value={form.asset_class}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -273,54 +276,70 @@ export default function PortfolioPage() {
                 </select>
               </label>
 
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Amount invested</span>
                 <input
+                  className="safe-input"
                   type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  max={999999999999}
                   value={form.amount_invested}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      amount_invested: event.target.value,
+                      amount_invested: event.target.value.slice(0, 18),
                     }))
                   }
                   placeholder="250000"
                 />
               </label>
 
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Units</span>
                 <input
+                  className="safe-input"
                   type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.000001"
+                  max={999999999999}
                   value={form.units}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      units: event.target.value,
+                      units: event.target.value.slice(0, 18),
                     }))
                   }
                   placeholder="10"
                 />
               </label>
 
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Unit value</span>
                 <input
+                  className="safe-input"
                   type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  max={999999999999}
                   value={form.unit_value}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      unit_value: event.target.value,
+                      unit_value: event.target.value.slice(0, 18),
                     }))
                   }
                   placeholder="25000"
                 />
               </label>
 
-              <label className="field">
+              <label className="field overflow-safe">
                 <span>Linked goal</span>
                 <select
+                  className="safe-select"
                   value={form.goal_id}
                   onChange={(event) =>
                     setForm((current) => ({

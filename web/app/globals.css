@@ -36,14 +36,125 @@ body {
 }
 
 button,
-a {
+a,
+input,
+select,
+textarea {
   font: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+label,
+.field {
+  min-width: 0;
+}
+
+.overflow-safe,
+label > span,
+.field > span,
+.auth-links,
+.auth-message,
+.safe-input,
+.safe-select,
+.safe-textarea {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+label > span,
+.field > span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.responsive-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.safe-input,
+.safe-select,
+.safe-textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.safe-input,
+.safe-select,
+.safe-textarea,
+.field input,
+.field select,
+.field textarea,
+.auth-form input,
+.auth-form select,
+.auth-form textarea {
+  appearance: none;
 }
 
 .page-shell {
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px 24px 64px;
+}
+
+.auth-card {
+  width: min(100%, 520px);
+  margin: 6rem auto;
+  overflow: hidden;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.auth-form input,
+.auth-form select,
+.auth-form textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.auth-form input,
+.auth-form textarea {
+  overflow-wrap: anywhere;
+}
+
+.auth-form .message {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .topbar {
@@ -604,11 +715,16 @@ th {
   color: var(--ink);
   font-size: 1rem;
   font-family: inherit;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .field textarea {
   resize: vertical;
   min-height: 110px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .compact-list {
@@ -725,5 +841,13 @@ th {
   .field-grid,
   .three-up {
     grid-template-columns: 1fr;
+  }
+
+  .auth-card {
+    margin: 3rem auto;
+  }
+
+  .auth-form {
+    gap: 14px;
   }
 }
