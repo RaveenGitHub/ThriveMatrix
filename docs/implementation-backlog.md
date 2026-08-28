@@ -87,6 +87,37 @@ The platform is required to use one canonical, India-first goal taxonomy across 
 
 These values must be treated as the only valid goal category options in the goal creation form and backend contract validation. The `goal_categories` seed table in the local database stores the same catalog so the UI and persistence layer remain aligned.
 
+## Approved Indian Investment Categories
+
+The portfolio investment system must use one canonical India-first investment taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
+
+- Equity (Stocks)
+- Mutual Funds
+- Fixed Deposits (FD)
+- Recurring Deposits (RD)
+- Public Provident Fund (PPF)
+- National Pension System (NPS)
+- Bonds & Debentures
+- Gold
+- Silver
+- Other Commodities
+- Real Estate
+- Agricultural Land / Farm Investment
+- Jewellery & Precious Metals
+- Company / Startup Setup
+- Angel Investing / Private Equity
+- Professional Certification & Skill Investment
+- R&D Initiatives / Innovation Projects
+- Cryptocurrency & Digital Assets
+- Digital Businesses / Online Assets
+- Intellectual Property (IP)
+- Health & Wellness Investment
+- Education Investment
+- Community & Charity Investment
+- Sustainable Living Investments
+
+These values must be treated as the only valid investment asset-class options in the Add Investment form and backend contract validation. The `investment_categories` seed table in the local database stores the same catalog so the frontend, API, and persistence layer remain aligned.
+
 BLOCKED -> READY after the blocker is resolved and revalidated
 Any state -> DEFERRED only with an approved decision record and impact assessment
 

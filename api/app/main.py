@@ -24,8 +24,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import (
     GOAL_CATEGORY_CATALOG,
+    INVESTMENT_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
     ensure_database_ready,
+    ensure_investment_category_seed,
     ensure_migration_bootstrap_tables,
     get_database_url,
     get_engine,
@@ -40,6 +42,7 @@ async def lifespan(_: FastAPI):
     ensure_database_ready()
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
+    ensure_investment_category_seed()
     yield
 
 
@@ -117,6 +120,7 @@ def startup_db_checks() -> None:
     ensure_database_ready()
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
+    ensure_investment_category_seed()
     _hydrate_users_from_database()
 
 
@@ -369,6 +373,11 @@ APPROVED_GOAL_CATEGORY_LABELS = {
     category["slug"]: category["label"] for category in GOAL_CATEGORY_CATALOG
 }
 
+APPROVED_INVESTMENT_CATEGORIES = tuple(category["slug"] for category in INVESTMENT_CATEGORY_CATALOG)
+APPROVED_INVESTMENT_CATEGORY_LABELS = {
+    category["slug"]: category["label"] for category in INVESTMENT_CATEGORY_CATALOG
+}
+
 
 class GoalCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -477,6 +486,15 @@ class InvestmentCreateRequest(BaseModel):
     valuation_timestamp: str
     goal_id: str | None = None
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("asset_class")
+    @classmethod
+    def validate_asset_class(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_INVESTMENT_CATEGORIES:
+            allowed = ", ".join(APPROVED_INVESTMENT_CATEGORIES)
+            raise ValueError(f"asset_class must be one of: {allowed}")
+        return normalized
 
     @property
     def current_asset_value(self) -> Decimal:

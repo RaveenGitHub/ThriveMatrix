@@ -32,6 +32,63 @@ type InvestmentSummary = {
   gain_loss: number;
 };
 
+const investmentCategories = [
+  { value: "equity_stocks", label: "Equity (Stocks)" },
+  { value: "mutual_funds", label: "Mutual Funds" },
+  { value: "fixed_deposits_fd", label: "Fixed Deposits (FD)" },
+  { value: "recurring_deposits_rd", label: "Recurring Deposits (RD)" },
+  { value: "public_provident_fund_ppf", label: "Public Provident Fund (PPF)" },
+  {
+    value: "national_pension_system_nps",
+    label: "National Pension System (NPS)",
+  },
+  { value: "bonds_debentures", label: "Bonds & Debentures" },
+  { value: "gold", label: "Gold" },
+  { value: "silver", label: "Silver" },
+  { value: "other_commodities", label: "Other Commodities" },
+  { value: "real_estate", label: "Real Estate" },
+  {
+    value: "agricultural_land_farm_investment",
+    label: "Agricultural Land / Farm Investment",
+  },
+  { value: "jewellery_precious_metals", label: "Jewellery & Precious Metals" },
+  { value: "company_startup_setup", label: "Company / Startup Setup" },
+  {
+    value: "angel_investing_private_equity",
+    label: "Angel Investing / Private Equity",
+  },
+  {
+    value: "professional_certification_skill_investment",
+    label: "Professional Certification & Skill Investment",
+  },
+  {
+    value: "rd_initiatives_innovation_projects",
+    label: "R&D Initiatives / Innovation Projects",
+  },
+  {
+    value: "cryptocurrency_digital_assets",
+    label: "Cryptocurrency & Digital Assets",
+  },
+  {
+    value: "digital_businesses_online_assets",
+    label: "Digital Businesses / Online Assets",
+  },
+  { value: "intellectual_property_ip", label: "Intellectual Property (IP)" },
+  {
+    value: "health_wellness_investment",
+    label: "Health & Wellness Investment",
+  },
+  { value: "education_investment", label: "Education Investment" },
+  {
+    value: "community_charity_investment",
+    label: "Community & Charity Investment",
+  },
+  {
+    value: "sustainable_living_investments",
+    label: "Sustainable Living Investments",
+  },
+];
+
 const indianCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -51,7 +108,7 @@ export default function PortfolioPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     name: "",
-    asset_class: "equity",
+    asset_class: "equity_stocks",
     currency: "INR",
     amount_invested: "",
     units: "",
@@ -146,7 +203,7 @@ export default function PortfolioPage() {
       setError("");
       setForm({
         name: "",
-        asset_class: "equity",
+        asset_class: "equity_stocks",
         currency: "INR",
         amount_invested: "",
         units: "",
@@ -269,10 +326,11 @@ export default function PortfolioPage() {
                     }))
                   }
                 >
-                  <option value="equity">Equity</option>
-                  <option value="debt">Debt</option>
-                  <option value="commodity">Commodity</option>
-                  <option value="cash">Cash</option>
+                  {investmentCategories.map((category) => (
+                    <option key={category.value} value={category.value}>
+                      {category.label}
+                    </option>
+                  ))}
                 </select>
               </label>
 

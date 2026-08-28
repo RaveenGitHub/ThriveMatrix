@@ -28,7 +28,7 @@ def test_user_can_create_and_list_investments() -> None:
         "/api/v1/investments",
         json={
             "name": "Nifty Index",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 75,
@@ -60,11 +60,33 @@ def test_investment_amount_and_units_must_be_valid() -> None:
         "/api/v1/investments",
         json={
             "name": "Bad Investment",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": -1,
             "units": 0,
             "unit_value": 0,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_investment_asset_class_must_use_canonical_taxonomy() -> None:
+    email = f"invest-taxonomy-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Legacy Alternative",
+            "asset_class": "legacy_alternative",
+            "currency": "INR",
+            "amount_invested": 25000,
+            "units": 10,
+            "unit_value": 2500,
             "valuation_source": "manual",
             "valuation_timestamp": "2026-08-19T10:00:00Z",
         },
@@ -85,7 +107,7 @@ def test_users_only_see_their_own_investments() -> None:
         "/api/v1/investments",
         json={
             "name": "Alice Investment",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 12000,
             "units": 10,
@@ -129,7 +151,7 @@ def test_goal_linked_investment_reports_current_value_and_gain_loss() -> None:
         "/api/v1/investments",
         json={
             "name": "Home fund allocation",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 100000,
             "units": 80,
@@ -178,7 +200,7 @@ def test_goal_linked_investment_must_belong_to_same_user() -> None:
         "/api/v1/investments",
         json={
             "name": "Bob linked investment",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 80000,
             "units": 10,
@@ -201,7 +223,7 @@ def test_portfolio_summary_and_allocations_reconcile_investment_values() -> None
         "/api/v1/investments",
         json={
             "name": "Nifty Index",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 100000,
             "units": 80,
@@ -215,7 +237,7 @@ def test_portfolio_summary_and_allocations_reconcile_investment_values() -> None
         "/api/v1/investments",
         json={
             "name": "Debt Fund",
-            "asset_class": "debt",
+            "asset_class": "mutual_funds",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 50,
@@ -243,8 +265,8 @@ def test_portfolio_summary_and_allocations_reconcile_investment_values() -> None
     assert allocations.status_code == 200
     allocation_body = allocations.json()["allocations"]
     assert {item["asset_class"]: item["weight_pct"] for item in allocation_body} == {
-        "equity": 68.57,
-        "debt": 31.43,
+        "equity_stocks": 68.57,
+        "mutual_funds": 31.43,
     }
 
 
@@ -254,7 +276,7 @@ def test_duplicate_investment_submissions_are_idempotent() -> None:
 
     payload = {
         "name": "Duplicate fund",
-        "asset_class": "equity",
+        "asset_class": "equity_stocks",
         "currency": "INR",
         "amount_invested": 75000,
         "units": 50,

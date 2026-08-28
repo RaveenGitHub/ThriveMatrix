@@ -42,7 +42,7 @@ def test_dashboard_exposes_summary_metrics() -> None:
         "/api/v1/investments",
         json={
             "name": "Nifty Index",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 75,
