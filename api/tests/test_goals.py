@@ -240,7 +240,7 @@ def test_goal_progress_is_based_on_linked_investments_and_underfunded_alerts() -
         "/api/v1/investments",
         json={
             "name": "Goal linked investment",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 30000,
             "units": 10,
@@ -256,7 +256,7 @@ def test_goal_progress_is_based_on_linked_investments_and_underfunded_alerts() -
         "/api/v1/investments",
         json={
             "name": "Unrelated investment",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 20,
@@ -296,7 +296,7 @@ def test_unassigned_investments_use_default_goal_and_goal_completion_requires_10
         "/api/v1/investments",
         json={
             "name": "Unassigned amount",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 20000,
             "units": 10,
@@ -329,7 +329,7 @@ def test_unassigned_investments_use_default_goal_and_goal_completion_requires_10
         "/api/v1/investments",
         json={
             "name": "Partial goal funding",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 20,
@@ -353,7 +353,7 @@ def test_unassigned_investments_use_default_goal_and_goal_completion_requires_10
         "/api/v1/investments",
         json={
             "name": "Complete goal funding",
-            "asset_class": "equity",
+            "asset_class": "equity_stocks",
             "currency": "INR",
             "amount_invested": 50000,
             "units": 20,

@@ -30,6 +30,33 @@ GOAL_CATEGORY_CATALOG: list[dict[str, str | int]] = [
     {"slug": "hobby_or_leisure", "label": "Hobby / Leisure", "sort_order": 20},
 ]
 
+INVESTMENT_CATEGORY_CATALOG: list[dict[str, str | int]] = [
+    {"slug": "equity_stocks", "label": "Equity (Stocks)", "sort_order": 1},
+    {"slug": "mutual_funds", "label": "Mutual Funds", "sort_order": 2},
+    {"slug": "fixed_deposits_fd", "label": "Fixed Deposits (FD)", "sort_order": 3},
+    {"slug": "recurring_deposits_rd", "label": "Recurring Deposits (RD)", "sort_order": 4},
+    {"slug": "public_provident_fund_ppf", "label": "Public Provident Fund (PPF)", "sort_order": 5},
+    {"slug": "national_pension_system_nps", "label": "National Pension System (NPS)", "sort_order": 6},
+    {"slug": "bonds_debentures", "label": "Bonds & Debentures", "sort_order": 7},
+    {"slug": "gold", "label": "Gold", "sort_order": 8},
+    {"slug": "silver", "label": "Silver", "sort_order": 9},
+    {"slug": "other_commodities", "label": "Other Commodities", "sort_order": 10},
+    {"slug": "real_estate", "label": "Real Estate", "sort_order": 11},
+    {"slug": "agricultural_land_farm_investment", "label": "Agricultural Land / Farm Investment", "sort_order": 12},
+    {"slug": "jewellery_precious_metals", "label": "Jewellery & Precious Metals", "sort_order": 13},
+    {"slug": "company_startup_setup", "label": "Company / Startup Setup", "sort_order": 14},
+    {"slug": "angel_investing_private_equity", "label": "Angel Investing / Private Equity", "sort_order": 15},
+    {"slug": "professional_certification_skill_investment", "label": "Professional Certification & Skill Investment", "sort_order": 16},
+    {"slug": "rd_initiatives_innovation_projects", "label": "R&D Initiatives / Innovation Projects", "sort_order": 17},
+    {"slug": "cryptocurrency_digital_assets", "label": "Cryptocurrency & Digital Assets", "sort_order": 18},
+    {"slug": "digital_businesses_online_assets", "label": "Digital Businesses / Online Assets", "sort_order": 19},
+    {"slug": "intellectual_property_ip", "label": "Intellectual Property (IP)", "sort_order": 20},
+    {"slug": "health_wellness_investment", "label": "Health & Wellness Investment", "sort_order": 21},
+    {"slug": "education_investment", "label": "Education Investment", "sort_order": 22},
+    {"slug": "community_charity_investment", "label": "Community & Charity Investment", "sort_order": 23},
+    {"slug": "sustainable_living_investments", "label": "Sustainable Living Investments", "sort_order": 24},
+]
+
 
 def normalize_db_datetime(value: str | None) -> str | None:
     if value is None:
@@ -276,6 +303,66 @@ def ensure_goal_category_seed() -> None:
                     text(
                         """
                         INSERT OR IGNORE INTO goal_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
+
+
+def ensure_investment_category_seed() -> None:
+    engine = get_engine()
+    if uses_mysql():
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS investment_categories (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                slug VARCHAR(120) NOT NULL UNIQUE,
+                label VARCHAR(200) NOT NULL,
+                sort_order INT NOT NULL,
+                is_active TINYINT NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+    else:
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS investment_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+
+    with engine.begin() as connection:
+        connection.execute(text(create_table_sql))
+
+        if uses_mysql():
+            for category in INVESTMENT_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT IGNORE INTO investment_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
+        else:
+            for category in INVESTMENT_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO investment_categories (slug, label, sort_order, is_active)
                         VALUES (:slug, :label, :sort_order, 1)
                         """
                     ),
