@@ -93,8 +93,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refreshSession();
-  }, [refreshSession]);
+    let active = true;
+
+    const loadSession = async () => {
+      try {
+        const payload = await apiFetch<SessionStatus>(
+          "/api/v1/auth/session-status",
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        if (active) {
+          setUser(payload);
+        }
+      } catch {
+        if (active) {
+          setUser(null);
+        }
+      } finally {
+        if (active) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    void loadSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const publicPaths = new Set(["/", "/login"]);

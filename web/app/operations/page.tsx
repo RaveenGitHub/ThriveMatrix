@@ -58,6 +58,26 @@ type ReleaseRunbook = {
   support: { escalation: string; runbook: string };
 };
 
+type ReleaseDecision = {
+  status: string;
+  decision: string;
+  known_limitations: Array<{
+    id: string;
+    area: string;
+    risk: string;
+    mitigation: string;
+  }>;
+  pending_decisions: Array<{
+    id: string;
+    title: string;
+    owner: string;
+    required_before: string;
+    status: string;
+    notes: string;
+  }>;
+  signoff_status: Record<string, string>;
+};
+
 export default function OperationsPage() {
   const { isAdmin, logout } = useAuth();
   const [summary, setSummary] = useState<OperationsSummary | null>(null);
@@ -70,6 +90,8 @@ export default function OperationsPage() {
   const [releaseRunbook, setReleaseRunbook] = useState<ReleaseRunbook | null>(
     null,
   );
+  const [releaseDecision, setReleaseDecision] =
+    useState<ReleaseDecision | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -83,12 +105,14 @@ export default function OperationsPage() {
           securityResponse,
           launchResponse,
           runbookResponse,
+          releaseDecisionResponse,
         ] = await Promise.all([
           apiFetch<OperationsSummary>("/api/v1/operations/summary"),
           apiFetch<RecoveryStatus>("/api/v1/operations/recovery"),
           apiFetch<SecurityReview>("/api/v1/operations/security-review"),
           apiFetch<LaunchGovernance>("/api/v1/launch/governance"),
           apiFetch<ReleaseRunbook>("/api/v1/release/runbook"),
+          apiFetch<ReleaseDecision>("/api/v1/release/decision"),
         ]);
 
         setSummary(summaryResponse);
@@ -96,6 +120,7 @@ export default function OperationsPage() {
         setSecurityReview(securityResponse);
         setLaunchGovernance(launchResponse);
         setReleaseRunbook(runbookResponse);
+        setReleaseDecision(releaseDecisionResponse);
         setError("");
       } catch (loadError) {
         setError(
@@ -128,6 +153,11 @@ export default function OperationsPage() {
     [releaseRunbook],
   );
 
+  const pendingDecisions = useMemo(
+    () => releaseDecision?.pending_decisions ?? [],
+    [releaseDecision],
+  );
+
   return (
     <ProtectedLayout>
       <main className="page-shell feature-page">
@@ -137,7 +167,7 @@ export default function OperationsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -223,6 +253,21 @@ export default function OperationsPage() {
                     </span>
                   </div>
                 ))}
+                {pendingDecisions.length > 0 ? (
+                  <div
+                    className="governance-item"
+                    style={{
+                      borderTop: "1px solid rgba(148,163,184,0.25)",
+                      paddingTop: 14,
+                    }}
+                  >
+                    <span>DECISIONS</span>
+                    <strong>Pending approvals</strong>
+                    <span className="pill neutral">
+                      {pendingDecisions.length}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             )}
           </article>
@@ -242,13 +287,30 @@ export default function OperationsPage() {
                 </li>
               </ul>
             ) : (
-              <ul className="activity-list">
-                {runbookSteps.map((step) => (
-                  <li key={`${step.owner}-${step.step}`}>
-                    <span>{step.step}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="activity-list">
+                  {runbookSteps.map((step) => (
+                    <li key={`${step.owner}-${step.step}`}>
+                      <span>{step.step}</span>
+                    </li>
+                  ))}
+                </ul>
+                {pendingDecisions.length > 0 ? (
+                  <div style={{ marginTop: 20 }}>
+                    <p className="eyebrow">PENDING DECISIONS</p>
+                    <ul className="activity-list">
+                      {pendingDecisions.map((item) => (
+                        <li key={item.id}>
+                          <span>
+                            <strong>{item.id}:</strong> {item.title} (
+                            {item.owner})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
             )}
           </aside>
         </section>

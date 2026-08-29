@@ -140,7 +140,48 @@ export default function PortfolioPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [listResponse, summaryResponse, goalsResponse] =
+          await Promise.all([
+            apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+            apiFetch<InvestmentSummary>("/api/v1/investments/summary"),
+            apiFetch<{ goals: GoalOption[] }>("/api/v1/goals"),
+          ]);
+
+        if (!active) {
+          return;
+        }
+
+        setInvestments(listResponse.investments ?? []);
+        setSummary(summaryResponse);
+        setGoals(goalsResponse.goals ?? []);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load portfolio",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const totalAllocation = useMemo(() => {
@@ -229,7 +270,7 @@ export default function PortfolioPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>

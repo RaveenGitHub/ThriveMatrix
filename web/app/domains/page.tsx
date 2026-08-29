@@ -93,7 +93,75 @@ export default function DomainsPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadDomains = async () => {
+      try {
+        setLoading(true);
+        const [
+          summaryResponse,
+          healthResponse,
+          legalResponse,
+          relationshipsResponse,
+          readinessResponse,
+        ] = await Promise.all([
+          apiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
+          apiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
+          apiFetch<{
+            contacts: Array<{
+              id: string;
+              name: string;
+              relationship: string;
+              phone: string;
+              email: string;
+            }>;
+          }>("/api/v1/legal/emergency-contacts"),
+          apiFetch<{ records: DomainRecord[] }>(
+            "/api/v1/relationships/records",
+          ),
+          apiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setSummary(summaryResponse);
+        setHealthRecords(healthResponse.records ?? []);
+        setLegalContacts(
+          (legalResponse.contacts ?? []).map((contact) => ({
+            id: contact.id,
+            category: "Legal",
+            title: contact.name,
+            status: "Ready",
+            notes: `${contact.relationship} • ${contact.phone}`,
+          })),
+        );
+        setRelationshipRecords(relationshipsResponse.records ?? []);
+        setReadinessItems(readinessResponse.items ?? []);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load domain summary",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadDomains();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -190,7 +258,7 @@ export default function DomainsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>

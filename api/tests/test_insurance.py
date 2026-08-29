@@ -163,6 +163,38 @@ def test_insurance_policy_tracks_coverage_goal_and_premium_gap() -> None:
     assert body["progress_pct"] == 40.0
 
 
+def test_insurance_taxonomy_accepts_the_new_app_ready_policy_types() -> None:
+    email = f"insurance-taxonomy-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    response = client.post(
+        "/api/v1/insurance/policies",
+        json={
+            "name": "Life Secure Term",
+            "policy_type": "Life Insurance",
+            "provider": "HDFC Life",
+            "premium_amount": 15000,
+            "coverage_amount": 2500000,
+            "coverage_goal": 5000000,
+            "premium_frequency": "yearly",
+            "last_premium_date": "2026-08-01",
+            "policy_details": "Term Life plan with rider protection",
+            "goal_mapping": "Family protection / life coverage gap",
+            "start_date": "2026-01-01",
+            "end_date": "2036-01-01",
+            "status": "active",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["policy_type"] == "Life Insurance"
+    assert body["policy_details"] == "Term Life plan with rider protection"
+    assert body["goal_mapping"] == "Family protection / life coverage gap"
+    assert body["status"] == "active"
+
+
 def test_insurance_dashboard_and_gap_endpoints_are_available() -> None:
     email = f"insurance-dashboard-{uuid.uuid4()}@example.com"
     token = _register_and_login(email)

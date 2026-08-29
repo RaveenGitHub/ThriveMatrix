@@ -23,12 +23,15 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import (
+    APPROVED_INSURANCE_POLICY_TYPES,
+    APPROVED_TRANSACTION_CATEGORIES,
     GOAL_CATEGORY_CATALOG,
     INVESTMENT_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
     ensure_database_ready,
     ensure_investment_category_seed,
     ensure_migration_bootstrap_tables,
+    ensure_transaction_category_seed,
     get_database_url,
     get_engine,
     normalize_db_datetime,
@@ -43,6 +46,7 @@ async def lifespan(_: FastAPI):
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
     ensure_investment_category_seed()
+    ensure_transaction_category_seed()
     yield
 
 
@@ -510,6 +514,19 @@ class TransactionRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    category: str | None = None
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Transaction category is required")
+        if normalized not in APPROVED_TRANSACTION_CATEGORIES:
+            raise ValueError(f"Unsupported transaction category: {normalized}")
+        return normalized
 
 
 class TransactionReviewRecord(BaseModel):
@@ -517,6 +534,7 @@ class TransactionReviewRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    category: str | None = None
 
     @field_validator("description")
     @classmethod
@@ -534,6 +552,18 @@ class TransactionReviewRecord(BaseModel):
             raise ValueError("Transaction type must be credit or debit")
         return normalized
 
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Transaction category is required")
+        if normalized not in APPROVED_TRANSACTION_CATEGORIES:
+            raise ValueError(f"Unsupported transaction category: {normalized}")
+        return normalized
+
 
 class TransactionImportRequest(BaseModel):
     source_name: str = Field(min_length=1, max_length=200)
@@ -548,16 +578,58 @@ class TransactionReviewRequest(BaseModel):
 class InsurancePolicyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     provider: str | None = Field(default=None, min_length=1, max_length=200)
-    policy_type: Literal["health", "life", "disability", "critical_illness", "auto", "home", "liability"]
+    policy_type: str
     premium_amount: float = Field(gt=0)
     coverage_amount: float = Field(gt=0)
     coverage_goal: float | None = Field(default=None, ge=0)
     premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
     last_premium_date: str | None = None
+    policy_details: str | None = Field(default=None, max_length=1000)
+    goal_mapping: str | None = Field(default=None, max_length=500)
     start_date: str
     end_date: str
     renewal_date: str | None = None
     status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_type")
+    @classmethod
+    def normalize_policy_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Insurance policy type is required")
+
+        legacy_map = {
+            "health": "health",
+            "life": "life",
+            "disability": "disability",
+            "critical_illness": "critical_illness",
+            "auto": "auto",
+            "home": "home",
+            "liability": "liability",
+        }
+        lookup_key = normalized.lower()
+        if lookup_key in legacy_map:
+            return legacy_map[lookup_key]
+
+        if normalized in APPROVED_INSURANCE_POLICY_TYPES:
+            return normalized
+
+        for item in APPROVED_INSURANCE_POLICY_TYPES:
+            if item.lower() == normalized.lower():
+                return item
+
+        raise ValueError(f"Unsupported insurance policy type: {normalized}")
+
+    @field_validator("status")
+    @classmethod
+    def normalize_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        status_values = {"active": "active", "inactive": "inactive", "expired": "expired", "renewal_due": "renewal_due", "pending": "pending"}
+        if normalized not in status_values:
+            raise ValueError("Insurance status must be active, inactive, expired, renewal_due or pending")
+        return status_values[normalized]
 
     @property
     def dates_valid(self) -> bool:
@@ -1495,7 +1567,17 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
     })
 
     auth_service.user_repository.add_password_reset_token(email, token_hash, expires_at)
-    return {"status": "ok", "message": "Password reset request accepted."}
+
+    reset_link = f"http://localhost:3000/forgot-password?email={email}&token={token}"
+    if _runtime_environment_name() not in {"prod", "production"}:
+        print(f"[dev-only] Password reset link for {email}: {reset_link}", flush=True)
+
+    return {
+        "status": "ok",
+        "message": "Password reset request accepted.",
+        "token": token,
+        "reset_url": reset_link,
+    }
 
 
 @app.post("/api/v1/auth/reset-password", tags=["auth"])
@@ -2454,6 +2536,8 @@ def create_insurance_policy(
         "coverage_goal": payload.coverage_goal if payload.coverage_goal is not None else 0.0,
         "premium_frequency": payload.premium_frequency,
         "last_premium_date": payload.last_premium_date,
+        "policy_details": payload.policy_details,
+        "goal_mapping": payload.goal_mapping,
         "start_date": payload.start_date,
         "end_date": payload.end_date,
         "renewal_date": payload.renewal_date,
@@ -2906,6 +2990,40 @@ def release_decision() -> dict[str, Any]:
             "mitigation": "Validate the full runbook during the launch window and keep a rollback path ready.",
         },
     ]
+    pending_decisions = [
+        {
+            "id": "D-01",
+            "title": "Statement retention and deletion review",
+            "owner": "Legal + Privacy + Security",
+            "required_before": "MVP release / regulated data handling",
+            "status": "pending",
+            "notes": "Requires explicit policy decisions for storage duration, retention, and deletion review windows.",
+        },
+        {
+            "id": "D-02",
+            "title": "Market-price provider and licensing",
+            "owner": "Product + Finance + Legal",
+            "required_before": "Live pricing integration",
+            "status": "pending",
+            "notes": "No live provider is implemented; vendor choice, compliance, and licensing approvals are required before integration.",
+        },
+        {
+            "id": "D-03",
+            "title": "Exact regulated financial activity boundary",
+            "owner": "Legal + Compliance + Product",
+            "required_before": "General availability",
+            "status": "pending",
+            "notes": "Requires a formal boundary definition for which activities are considered regulated and how they are disclosed or restricted.",
+        },
+        {
+            "id": "D-04",
+            "title": "Final brand monogram choice",
+            "owner": "Design + Brand",
+            "required_before": "Final UX/branding sign-off",
+            "status": "pending",
+            "notes": "This is a design decision and does not block technical delivery or the current backlog.",
+        },
+    ]
     signoff_status = {
         "product": "approved",
         "engineering": "approved",
@@ -2918,6 +3036,7 @@ def release_decision() -> dict[str, Any]:
         "status": status,
         "decision": status,
         "known_limitations": known_limitations,
+        "pending_decisions": pending_decisions,
         "signoff_status": signoff_status,
     }
 
@@ -3107,6 +3226,7 @@ def review_transactions(
             "description": record.description.strip().lower(),
             "amount": float(record.amount),
             "type": record.type.strip().lower(),
+            "category": _resolve_transaction_category(record.category, record.description),
         }
         fingerprint = hashlib.sha256(
             f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}".encode("utf-8")
@@ -3120,6 +3240,7 @@ def review_transactions(
                 "description": normalized["description"],
                 "amount": normalized["amount"],
                 "type": normalized["type"],
+                "category": normalized["category"],
                 "owner_email": user["email"],
                 "source_name": payload.source_name,
                 "fingerprint": fingerprint,
@@ -3143,12 +3264,15 @@ def import_transactions(
     for record in payload.records:
         if record.type not in {"credit", "debit"}:
             raise HTTPException(status_code=422, detail="Transaction type must be credit or debit")
+
+        category = _resolve_transaction_category(record.category, record.description)
         imported.append(
             {
                 "date": record.date,
                 "description": record.description,
                 "amount": record.amount,
                 "type": record.type,
+                "category": category,
                 "owner_email": user["email"],
             }
         )
@@ -3163,20 +3287,33 @@ def import_transactions(
 def _categorize_transaction(description: str) -> str:
     lowered = description.strip().lower()
     if any(keyword in lowered for keyword in ["salary", "payroll", "bonus", "income", "freelance", "project"]):
-        return "salary"
+        return "Salary"
     if any(keyword in lowered for keyword in ["rent", "mortgage", "lease", "housing"]):
-        return "housing"
-    if any(keyword in lowered for keyword in ["grocery", "groceries", "food", "supermarket", "milk", "fruit"]):
-        return "food"
+        return "Misc Expense"
+    if any(keyword in lowered for keyword in ["grocery", "groceries", "supermarket", "milk", "fruit", "vegetable"]):
+        return "Grocery"
     if any(keyword in lowered for keyword in ["insurance", "premium"]):
-        return "insurance"
+        return "Health Insurance Premium"
     if any(keyword in lowered for keyword in ["travel", "flight", "hotel", "uber", "cab"]):
-        return "travel"
-    if any(keyword in lowered for keyword in ["utility", "electricity", "water", "internet", "phone"]):
-        return "utilities"
+        return "Misc Expense"
+    if any(keyword in lowered for keyword in ["utility", "electricity", "water", "internet", "wi-fi", "wifi", "phone"]):
+        return "Internet / WiFi"
     if any(keyword in lowered for keyword in ["loan", "emi", "credit card", "interest"]):
-        return "debt"
-    return "other"
+        return "Loan EMI Paid"
+    return "Misc Expense"
+
+
+def _resolve_transaction_category(category: str | None, description: str) -> str:
+    if category:
+        normalized = category.strip()
+        if normalized not in APPROVED_TRANSACTION_CATEGORIES:
+            raise HTTPException(status_code=422, detail=f"Unsupported transaction category: {normalized}")
+        return normalized
+
+    inferred = _categorize_transaction(description)
+    if inferred in APPROVED_TRANSACTION_CATEGORIES:
+        return inferred
+    raise HTTPException(status_code=422, detail="Transaction category is required")
 
 
 @app.get("/api/v1/transactions/summary", tags=["transactions"])
@@ -3200,11 +3337,15 @@ def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) ->
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
     bucket: dict[str, float] = {}
     for transaction in owner_transactions:
-        category = _categorize_transaction(transaction["description"])
+        category = transaction.get("category") or _categorize_transaction(transaction["description"])
         bucket[category] = bucket.get(category, 0.0) + float(transaction["amount"])
 
     categories = [
-        {"category": category, "total": round(total, 2), "count": len([t for t in owner_transactions if _categorize_transaction(t["description"]) == category])}
+        {
+            "category": category,
+            "total": round(total, 2),
+            "count": len([t for t in owner_transactions if (t.get("category") or _categorize_transaction(t["description"])) == category]),
+        }
         for category, total in sorted(bucket.items())
     ]
     return {"categories": categories}

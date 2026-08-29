@@ -27,10 +27,24 @@ export async function apiFetch<T>(
     : null;
 
   if (!response.ok) {
-    const message =
+    const details = payload?.error?.details;
+    const fieldMessage = Array.isArray(details)
+      ? details
+          .map((entry) => entry?.msg)
+          .find(
+            (msg): msg is string => typeof msg === "string" && msg.length > 0,
+          )
+      : undefined;
+
+    const message = (
+      fieldMessage ??
       payload?.detail ??
       payload?.error?.message ??
-      `Request failed with status ${response.status}`;
+      `Request failed with status ${response.status}`
+    )
+      .toString()
+      .replace(/^Value error,\s*/i, "");
+
     throw new Error(message);
   }
 

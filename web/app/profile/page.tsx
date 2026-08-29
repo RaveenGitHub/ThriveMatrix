@@ -22,7 +22,7 @@ const profileStats = [
 const accountTiles = [
   "Personal data privacy controls are active.",
   "Access tokens are limited to owner-scoped sessions.",
-  "Primary review window is aligned to India fiscal cycle.",
+  "Primary review window is aligned to the ThriveMatrix planning cycle.",
   "Two-step verification remains available for sensitive actions.",
 ];
 
@@ -43,7 +43,7 @@ export default function ProfilePage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>

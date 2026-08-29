@@ -112,7 +112,69 @@ export default function GoalsPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadGoals = async () => {
+      try {
+        setLoading(true);
+        const payload = await apiFetch<{ goals: GoalRecord[] }>(
+          "/api/v1/goals",
+        );
+        const nextGoals = payload.goals ?? [];
+
+        if (!active) {
+          return;
+        }
+
+        setGoals(nextGoals);
+
+        const progressEntries = await Promise.all(
+          nextGoals.map(async (goal) => {
+            try {
+              const progress = await apiFetch<GoalProgress>(
+                `/api/v1/goals/${goal.id}/progress`,
+              );
+              return [goal.id, progress] as const;
+            } catch {
+              return [goal.id, null] as const;
+            }
+          }),
+        );
+
+        if (!active) {
+          return;
+        }
+
+        const nextProgress: Record<string, GoalProgress> = {};
+        for (const [goalId, goalProgress] of progressEntries) {
+          if (goalProgress) {
+            nextProgress[goalId] = goalProgress;
+          }
+        }
+        setProgressByGoal(nextProgress);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load goals",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadGoals();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const summary = useMemo(() => {
@@ -184,7 +246,7 @@ export default function GoalsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>

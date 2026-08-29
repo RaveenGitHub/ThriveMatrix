@@ -60,9 +60,26 @@ Release governance status: PENDING approval for retention/deletion policy, prici
 - Successful submission creates only one investment record for the authenticated user and links to the selected goal only when a valid goal is chosen.
 - This requirement is enforced both in the frontend UX and in the backend contract validation for `amount_invested`, `units`, and `unit_value`.
 
-## Approved Indian Goal Categories
+## Approved daily transaction categories
 
-The platform is required to use one canonical, India-first goal taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
+The platform must use one canonical daily transaction taxonomy across the requirement set, API validation, database seed, and transaction entry UI. The approved categories are:
+
+- Household Essentials: Grocery; Vegetables & Fruits; Milk & Dairy; Meat & Fish; Home Supplies; Gas Cylinder; Water Can
+- Food & Lifestyle: Eat Out / Restaurants; Snacks & Beverages; Online Food Delivery; Clothing / Dress; Personal Care; Entertainment
+- Children & Education: School Fee; Tuition Fee; Books & Stationery; Extracurricular Activities
+- Income Sources: Salary; Business Income; Freelancing Income; Dividend; Interest Income; Rental Income
+- Lending & Borrowing: Lending In (Money Received Back); Lending Out (Money Given); Loan EMI Paid; Loan EMI Received
+- Transportation: Fuel; Auto/Taxi; Vehicle Service; Parking
+- Bills & Utilities: Electricity Bill; Water Bill; Internet / WiFi; Mobile Recharge; DTH / TV Subscription
+- Health & Wellness: Medical Expenses; Pharmacy; Health Insurance Premium; Gym / Fitness
+- Contributions & Social: Charity; Temple / Religious Offering; Community Contribution; Family Support
+- Miscellaneous: Shopping; Online Purchase; Misc Expense; Misc Income
+
+These values must be treated as the only valid transaction category options for the transaction import API and for the transaction form dropdown. The `transaction_categories` seed table stores the same catalog so the UI, API, and persistence layer remain aligned.
+
+## Approved ThriveMatrix Goal Categories
+
+The platform is required to use one canonical ThriveMatrix goal taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
 
 - Emergency Fund
 - Home Purchase
@@ -87,9 +104,9 @@ The platform is required to use one canonical, India-first goal taxonomy across 
 
 These values must be treated as the only valid goal category options in the goal creation form and backend contract validation. The `goal_categories` seed table in the local database stores the same catalog so the UI and persistence layer remain aligned.
 
-## Approved Indian Investment Categories
+## Approved ThriveMatrix Investment Categories
 
-The portfolio investment system must use one canonical India-first investment taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
+The portfolio investment system must use one canonical ThriveMatrix investment taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved categories are:
 
 - Equity (Stocks)
 - Mutual Funds
@@ -117,6 +134,56 @@ The portfolio investment system must use one canonical India-first investment ta
 - Sustainable Living Investments
 
 These values must be treated as the only valid investment asset-class options in the Add Investment form and backend contract validation. The `investment_categories` seed table in the local database stores the same catalog so the frontend, API, and persistence layer remain aligned.
+
+## Approved Insurance Policy Types
+
+The insurance domain must use one canonical, user-facing policy taxonomy across the requirement set, API validation, database seed, and UI dropdown. The approved policy types are:
+
+- Life Insurance
+- Accident Insurance
+- Critical Illness Insurance
+- Mental Wellness Insurance
+- Health Insurance
+- Hospital Cash Insurance
+- Top-Up & Super Top-Up Health Plans
+- Income Protection / Disability Insurance
+- Job Loss Insurance
+- Vehicle Insurance
+- Home Insurance
+- Property Insurance
+- Travel Insurance
+- Business Insurance
+- Professional Liability Insurance
+- Cyber Insurance
+- Employer Liability Insurance
+- Pet Insurance
+- Event Insurance
+- Agriculture Insurance
+
+The implementation must preserve the canonical labels in the database catalog and UI, while also allowing legacy compatibility values for older integrations: `health`, `life`, `disability`, `critical_illness`, `auto`, `home`, and `liability`.
+
+## Insurance metadata requirements
+
+The insurance module must capture and validate the following fields for each policy record:
+
+- policy_name or name
+- policy_type
+- provider
+- coverage_amount
+- premium_amount
+- premium_frequency
+- coverage_goal
+- last_premium_date
+- start_date
+- end_date
+- renewal_date
+- policy_details
+- goal_mapping
+- coverage_gap
+- premium_gap
+- status
+
+These values are required both in the backend validation model and in the insurance entry UI so the form, API, and dashboard remain aligned.
 
 BLOCKED -> READY after the blocker is resolved and revalidated
 Any state -> DEFERRED only with an approved decision record and impact assessment

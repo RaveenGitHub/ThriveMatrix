@@ -7,11 +7,12 @@ import { useAuth } from "../auth-context";
 import { ProtectedLayout } from "../protected-layout";
 
 type Transaction = {
-  id: string;
+  id?: string;
   date: string;
   description: string;
   amount: number;
   type: "credit" | "debit";
+  category?: string;
   owner_email?: string;
 };
 
@@ -22,6 +23,57 @@ type TransactionSummary = {
   savings_rate: number;
   transaction_count: number;
 };
+
+const transactionCategoryOptions = [
+  "Grocery",
+  "Vegetables & Fruits",
+  "Milk & Dairy",
+  "Meat & Fish",
+  "Home Supplies",
+  "Gas Cylinder",
+  "Water Can",
+  "Eat Out / Restaurants",
+  "Snacks & Beverages",
+  "Online Food Delivery",
+  "Clothing / Dress",
+  "Personal Care",
+  "Entertainment",
+  "School Fee",
+  "Tuition Fee",
+  "Books & Stationery",
+  "Extracurricular Activities",
+  "Salary",
+  "Business Income",
+  "Freelancing Income",
+  "Dividend",
+  "Interest Income",
+  "Rental Income",
+  "Lending In (Money Received Back)",
+  "Lending Out (Money Given)",
+  "Loan EMI Paid",
+  "Loan EMI Received",
+  "Fuel",
+  "Auto/Taxi",
+  "Vehicle Service",
+  "Parking",
+  "Electricity Bill",
+  "Water Bill",
+  "Internet / WiFi",
+  "Mobile Recharge",
+  "DTH / TV Subscription",
+  "Medical Expenses",
+  "Pharmacy",
+  "Health Insurance Premium",
+  "Gym / Fitness",
+  "Charity",
+  "Temple / Religious Offering",
+  "Community Contribution",
+  "Family Support",
+  "Shopping",
+  "Online Purchase",
+  "Misc Expense",
+  "Misc Income",
+];
 
 const indianCurrency = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -43,7 +95,7 @@ export default function TransactionsPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     description: "",
-    category: "Income",
+    category: "",
     amount: "",
     type: "credit" as "credit" | "debit",
     date: new Date().toISOString().slice(0, 10),
@@ -71,7 +123,45 @@ export default function TransactionsPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [listResponse, summaryResponse] = await Promise.all([
+          apiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
+          apiFetch<TransactionSummary>("/api/v1/transactions/summary"),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setTransactions(listResponse.transactions ?? []);
+        setSummary(summaryResponse);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load transactions",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -80,7 +170,16 @@ export default function TransactionsPage() {
     const description = form.description.trim();
     const amount = Number(form.amount);
 
-    if (!description || Number.isNaN(amount) || amount <= 0) {
+    if (
+      !description ||
+      !form.category ||
+      Number.isNaN(amount) ||
+      amount <= 0 ||
+      !form.date
+    ) {
+      setError(
+        "Please fill in a valid date, category, amount, and description before saving.",
+      );
       return;
     }
 
@@ -95,14 +194,16 @@ export default function TransactionsPage() {
               description,
               amount,
               type: form.type,
+              category: form.category,
             },
           ],
         }),
       });
 
+      setError("");
       setForm({
         description: "",
-        category: "Income",
+        category: "",
         amount: "",
         type: "credit",
         date: new Date().toISOString().slice(0, 10),
@@ -126,7 +227,7 @@ export default function TransactionsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -214,11 +315,12 @@ export default function TransactionsPage() {
                       }))
                     }
                   >
-                    <option value="Income">Income</option>
-                    <option value="Housing">Housing</option>
-                    <option value="Investments">Investments</option>
-                    <option value="Protection">Protection</option>
-                    <option value="Lifestyle">Lifestyle</option>
+                    <option value="">Select category</option>
+                    {transactionCategoryOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
@@ -304,7 +406,7 @@ export default function TransactionsPage() {
                       </span>
                     </div>
                     <div className="goal-details">
-                      <span>{form.category || "Income"}</span>
+                      <span>{transaction.category || "Uncategorized"}</span>
                       <span>{transaction.date}</span>
                     </div>
                     <div className="goal-details">
