@@ -4,7 +4,7 @@ export const API_BASE_URL =
     ? `${window.location.protocol}//${window.location.hostname}:8000`
     : "http://localhost:8000");
 
-export async function apiFetch<T>(
+export async function ravApiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
@@ -27,12 +27,28 @@ export async function apiFetch<T>(
     : null;
 
   if (!response.ok) {
-    const message =
+    const details = payload?.error?.details;
+    const fieldMessage = Array.isArray(details)
+      ? details
+          .map((entry) => entry?.msg)
+          .find(
+            (msg): msg is string => typeof msg === "string" && msg.length > 0,
+          )
+      : undefined;
+
+    const message = (
+      fieldMessage ??
       payload?.detail ??
       payload?.error?.message ??
-      `Request failed with status ${response.status}`;
+      `Request failed with status ${response.status}`
+    )
+      .toString()
+      .replace(/^Value error,\s*/i, "");
+
     throw new Error(message);
   }
 
   return (payload ?? undefined) as T;
 }
+
+export const apiFetch = ravApiFetch;

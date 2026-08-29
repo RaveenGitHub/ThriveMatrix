@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type GoalRecord = {
   id: string;
@@ -60,7 +60,7 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function GoalsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [progressByGoal, setProgressByGoal] = useState<
     Record<string, GoalProgress>
@@ -77,7 +77,9 @@ export default function GoalsPage() {
   const loadGoals = async () => {
     try {
       setLoading(true);
-      const payload = await apiFetch<{ goals: GoalRecord[] }>("/api/v1/goals");
+      const payload = await ravApiFetch<{ goals: GoalRecord[] }>(
+        "/api/v1/goals",
+      );
       const nextGoals = payload.goals ?? [];
       setGoals(nextGoals);
 
@@ -112,7 +114,69 @@ export default function GoalsPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadGoals = async () => {
+      try {
+        setLoading(true);
+        const payload = await ravApiFetch<{ goals: GoalRecord[] }>(
+          "/api/v1/goals",
+        );
+        const nextGoals = payload.goals ?? [];
+
+        if (!active) {
+          return;
+        }
+
+        setGoals(nextGoals);
+
+        const progressEntries = await Promise.all(
+          nextGoals.map(async (goal) => {
+            try {
+              const progress = await ravApiFetch<GoalProgress>(
+                `/api/v1/goals/${goal.id}/progress`,
+              );
+              return [goal.id, progress] as const;
+            } catch {
+              return [goal.id, null] as const;
+            }
+          }),
+        );
+
+        if (!active) {
+          return;
+        }
+
+        const nextProgress: Record<string, GoalProgress> = {};
+        for (const [goalId, goalProgress] of progressEntries) {
+          if (goalProgress) {
+            nextProgress[goalId] = goalProgress;
+          }
+        }
+        setProgressByGoal(nextProgress);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load goals",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadGoals();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const summary = useMemo(() => {
@@ -146,7 +210,7 @@ export default function GoalsPage() {
     }
 
     try {
-      await apiFetch<GoalRecord>("/api/v1/goals", {
+      await ravApiFetch<GoalRecord>("/api/v1/goals", {
         method: "POST",
         body: JSON.stringify({
           name,
@@ -176,7 +240,7 @@ export default function GoalsPage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -184,7 +248,7 @@ export default function GoalsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -373,6 +437,6 @@ export default function GoalsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

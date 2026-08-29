@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type Investment = {
   id: string;
@@ -96,7 +96,7 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function PortfolioPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [goals, setGoals] = useState<GoalOption[]>([]);
   const [summary, setSummary] = useState<InvestmentSummary>({
@@ -120,9 +120,9 @@ export default function PortfolioPage() {
     try {
       setLoading(true);
       const [listResponse, summaryResponse, goalsResponse] = await Promise.all([
-        apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
-        apiFetch<InvestmentSummary>("/api/v1/investments/summary"),
-        apiFetch<{ goals: GoalOption[] }>("/api/v1/goals"),
+        ravApiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+        ravApiFetch<InvestmentSummary>("/api/v1/investments/summary"),
+        ravApiFetch<{ goals: GoalOption[] }>("/api/v1/goals"),
       ]);
       setInvestments(listResponse.investments ?? []);
       setSummary(summaryResponse);
@@ -140,7 +140,48 @@ export default function PortfolioPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [listResponse, summaryResponse, goalsResponse] =
+          await Promise.all([
+            ravApiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+            ravApiFetch<InvestmentSummary>("/api/v1/investments/summary"),
+            ravApiFetch<{ goals: GoalOption[] }>("/api/v1/goals"),
+          ]);
+
+        if (!active) {
+          return;
+        }
+
+        setInvestments(listResponse.investments ?? []);
+        setSummary(summaryResponse);
+        setGoals(goalsResponse.goals ?? []);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load portfolio",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const totalAllocation = useMemo(() => {
@@ -195,7 +236,7 @@ export default function PortfolioPage() {
         goal_id: form.goal_id || undefined,
       };
 
-      await apiFetch<Investment>("/api/v1/investments", {
+      await ravApiFetch<Investment>("/api/v1/investments", {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -221,7 +262,7 @@ export default function PortfolioPage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -229,7 +270,7 @@ export default function PortfolioPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -509,6 +550,6 @@ export default function PortfolioPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

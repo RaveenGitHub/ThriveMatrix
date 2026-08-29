@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type DomainSummaryResponse = {
   status: string;
@@ -25,7 +25,7 @@ type DomainRecord = {
 };
 
 export default function DomainsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [summary, setSummary] = useState<DomainSummaryResponse | null>(null);
   const [healthRecords, setHealthRecords] = useState<DomainRecord[]>([]);
   const [legalContacts, setLegalContacts] = useState<DomainRecord[]>([]);
@@ -93,7 +93,75 @@ export default function DomainsPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadDomains = async () => {
+      try {
+        setLoading(true);
+        const [
+          summaryResponse,
+          healthResponse,
+          legalResponse,
+          relationshipsResponse,
+          readinessResponse,
+        ] = await Promise.all([
+          ravApiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
+          ravApiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
+          ravApiFetch<{
+            contacts: Array<{
+              id: string;
+              name: string;
+              relationship: string;
+              phone: string;
+              email: string;
+            }>;
+          }>("/api/v1/legal/emergency-contacts"),
+          ravApiFetch<{ records: DomainRecord[] }>(
+            "/api/v1/relationships/records",
+          ),
+          ravApiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setSummary(summaryResponse);
+        setHealthRecords(healthResponse.records ?? []);
+        setLegalContacts(
+          (legalResponse.contacts ?? []).map((contact) => ({
+            id: contact.id,
+            category: "Legal",
+            title: contact.name,
+            status: "Ready",
+            notes: `${contact.relationship} • ${contact.phone}`,
+          })),
+        );
+        setRelationshipRecords(relationshipsResponse.records ?? []);
+        setReadinessItems(readinessResponse.items ?? []);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load domain summary",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadDomains();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -138,7 +206,7 @@ export default function DomainsPage() {
         },
       };
 
-      await apiFetch(endpointMap[form.category], {
+      await ravApiFetch(endpointMap[form.category], {
         method: "POST",
         body: JSON.stringify(payloadMap[form.category]),
       });
@@ -182,7 +250,7 @@ export default function DomainsPage() {
   ];
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -190,7 +258,7 @@ export default function DomainsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -368,6 +436,6 @@ export default function DomainsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

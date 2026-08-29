@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type GovernanceUser = {
   email: string;
@@ -19,7 +19,7 @@ type GovernanceSummary = {
 };
 
 export default function GovernancePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -28,7 +28,7 @@ export default function GovernancePage() {
     const loadGovernance = async () => {
       try {
         setLoading(true);
-        const response = await apiFetch<GovernanceSummary>(
+        const response = await ravApiFetch<GovernanceSummary>(
           "/api/v1/admin/governance",
         );
         setSummary(response);
@@ -53,7 +53,7 @@ export default function GovernancePage() {
   );
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -61,7 +61,7 @@ export default function GovernancePage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -172,6 +172,6 @@ export default function GovernancePage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

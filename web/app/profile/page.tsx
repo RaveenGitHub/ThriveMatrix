@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const preferencesDefaults = {
   reminders: true,
@@ -22,12 +22,12 @@ const profileStats = [
 const accountTiles = [
   "Personal data privacy controls are active.",
   "Access tokens are limited to owner-scoped sessions.",
-  "Primary review window is aligned to India fiscal cycle.",
+  "Primary review window is aligned to the ThriveMatrix planning cycle.",
   "Two-step verification remains available for sensitive actions.",
 ];
 
 export default function ProfilePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [preferences, setPreferences] = useState(preferencesDefaults);
 
   const toggle = (key: keyof typeof preferencesDefaults) => {
@@ -35,7 +35,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -43,7 +43,7 @@ export default function ProfilePage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -241,6 +241,6 @@ export default function ProfilePage() {
           </ul>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

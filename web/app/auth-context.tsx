@@ -10,9 +10,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { apiFetch } from "../lib/api";
+import { ravApiFetch } from "../lib/api";
 
-type SessionStatus = {
+type RavSessionStatus = {
   status: string;
   verified: boolean;
   email: string;
@@ -20,29 +20,29 @@ type SessionStatus = {
   role?: string;
 };
 
-type AuthContextValue = {
+type RavAuthContextValue = {
   isAuthenticated: boolean;
   isVerified: boolean;
   isAdmin: boolean;
   isReady: boolean;
-  user: SessionStatus | null;
+  user: RavSessionStatus | null;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
   terminateOnClose: () => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const RavAuthContext = createContext<RavAuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function RavAuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<SessionStatus | null>(null);
+  const [user, setUser] = useState<RavSessionStatus | null>(null);
   const [isReady, setIsReady] = useState(false);
   const closeRequestInFlight = useRef(false);
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     try {
-      const payload = await apiFetch<SessionStatus>(
+      const payload = await ravApiFetch<RavSessionStatus>(
         "/api/v1/auth/session-status",
         {
           method: "GET",
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     closeRequestInFlight.current = true;
     try {
-      await apiFetch("/api/v1/auth/session/terminate", {
+      await ravApiFetch("/api/v1/auth/session/terminate", {
         method: "POST",
         cache: "no-store",
       });
@@ -81,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await apiFetch("/api/v1/auth/logout", {
+      await ravApiFetch("/api/v1/auth/logout", {
         method: "POST",
         cache: "no-store",
       });
@@ -93,8 +93,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refreshSession();
-  }, [refreshSession]);
+    let active = true;
+
+    const loadSession = async () => {
+      try {
+        const payload = await ravApiFetch<RavSessionStatus>(
+          "/api/v1/auth/session-status",
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        if (active) {
+          setUser(payload);
+        }
+      } catch {
+        if (active) {
+          setUser(null);
+        }
+      } finally {
+        if (active) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    void loadSession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const publicPaths = new Set(["/", "/login"]);
@@ -139,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [terminateOnClose]);
 
-  const value = useMemo<AuthContextValue>(
+  const value = useMemo<RavAuthContextValue>(
     () => ({
       isAuthenticated: Boolean(user?.status === "active" || user?.verified),
       isVerified: Boolean(user?.verified),
@@ -153,14 +183,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [isReady, logout, refreshSession, terminateOnClose, user],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <RavAuthContext.Provider value={value}>{children}</RavAuthContext.Provider>
+  );
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
+export const AuthProvider = RavAuthProvider;
+
+export function useRavAuth() {
+  const context = useContext(RavAuthContext);
   if (!context) {
-    throw new Error("useAuth requires an AuthProvider");
+    throw new Error("useRavAuth requires a RavAuthProvider");
   }
 
   return context;
 }
+
+export const useAuth = useRavAuth;
+export type SessionStatus = RavSessionStatus;
+export type AuthContextValue = RavAuthContextValue;
+export const AuthContext = RavAuthContext;

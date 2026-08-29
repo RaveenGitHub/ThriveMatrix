@@ -57,6 +57,84 @@ INVESTMENT_CATEGORY_CATALOG: list[dict[str, str | int]] = [
     {"slug": "sustainable_living_investments", "label": "Sustainable Living Investments", "sort_order": 24},
 ]
 
+TRANSACTION_CATEGORY_CATALOG: list[dict[str, str | int]] = [
+    {"slug": "grocery", "label": "Grocery", "sort_order": 1},
+    {"slug": "vegetables_fruits", "label": "Vegetables & Fruits", "sort_order": 2},
+    {"slug": "milk_dairy", "label": "Milk & Dairy", "sort_order": 3},
+    {"slug": "meat_fish", "label": "Meat & Fish", "sort_order": 4},
+    {"slug": "home_supplies", "label": "Home Supplies", "sort_order": 5},
+    {"slug": "gas_cylinder", "label": "Gas Cylinder", "sort_order": 6},
+    {"slug": "water_can", "label": "Water Can", "sort_order": 7},
+    {"slug": "eat_out_restaurants", "label": "Eat Out / Restaurants", "sort_order": 8},
+    {"slug": "snacks_beverages", "label": "Snacks & Beverages", "sort_order": 9},
+    {"slug": "online_food_delivery", "label": "Online Food Delivery", "sort_order": 10},
+    {"slug": "clothing_dress", "label": "Clothing / Dress", "sort_order": 11},
+    {"slug": "personal_care", "label": "Personal Care", "sort_order": 12},
+    {"slug": "entertainment", "label": "Entertainment", "sort_order": 13},
+    {"slug": "school_fee", "label": "School Fee", "sort_order": 14},
+    {"slug": "tuition_fee", "label": "Tuition Fee", "sort_order": 15},
+    {"slug": "books_stationery", "label": "Books & Stationery", "sort_order": 16},
+    {"slug": "extracurricular_activities", "label": "Extracurricular Activities", "sort_order": 17},
+    {"slug": "salary", "label": "Salary", "sort_order": 18},
+    {"slug": "business_income", "label": "Business Income", "sort_order": 19},
+    {"slug": "freelancing_income", "label": "Freelancing Income", "sort_order": 20},
+    {"slug": "dividend", "label": "Dividend", "sort_order": 21},
+    {"slug": "interest_income", "label": "Interest Income", "sort_order": 22},
+    {"slug": "rental_income", "label": "Rental Income", "sort_order": 23},
+    {"slug": "lending_in", "label": "Lending In (Money Received Back)", "sort_order": 24},
+    {"slug": "lending_out", "label": "Lending Out (Money Given)", "sort_order": 25},
+    {"slug": "loan_emi_paid", "label": "Loan EMI Paid", "sort_order": 26},
+    {"slug": "loan_emi_received", "label": "Loan EMI Received", "sort_order": 27},
+    {"slug": "fuel", "label": "Fuel", "sort_order": 28},
+    {"slug": "auto_taxi", "label": "Auto/Taxi", "sort_order": 29},
+    {"slug": "vehicle_service", "label": "Vehicle Service", "sort_order": 30},
+    {"slug": "parking", "label": "Parking", "sort_order": 31},
+    {"slug": "electricity_bill", "label": "Electricity Bill", "sort_order": 32},
+    {"slug": "water_bill", "label": "Water Bill", "sort_order": 33},
+    {"slug": "internet_wifi", "label": "Internet / WiFi", "sort_order": 34},
+    {"slug": "mobile_recharge", "label": "Mobile Recharge", "sort_order": 35},
+    {"slug": "dth_tv_subscription", "label": "DTH / TV Subscription", "sort_order": 36},
+    {"slug": "medical_expenses", "label": "Medical Expenses", "sort_order": 37},
+    {"slug": "pharmacy", "label": "Pharmacy", "sort_order": 38},
+    {"slug": "health_insurance_premium", "label": "Health Insurance Premium", "sort_order": 39},
+    {"slug": "gym_fitness", "label": "Gym / Fitness", "sort_order": 40},
+    {"slug": "charity", "label": "Charity", "sort_order": 41},
+    {"slug": "temple_religious_offering", "label": "Temple / Religious Offering", "sort_order": 42},
+    {"slug": "community_contribution", "label": "Community Contribution", "sort_order": 43},
+    {"slug": "family_support", "label": "Family Support", "sort_order": 44},
+    {"slug": "shopping", "label": "Shopping", "sort_order": 45},
+    {"slug": "online_purchase", "label": "Online Purchase", "sort_order": 46},
+    {"slug": "misc_expense", "label": "Misc Expense", "sort_order": 47},
+    {"slug": "misc_income", "label": "Misc Income", "sort_order": 48},
+]
+
+INSURANCE_POLICY_CATALOG: list[dict[str, str | int]] = [
+    {"slug": "life_insurance", "label": "Life Insurance", "sort_order": 1},
+    {"slug": "accident_insurance", "label": "Accident Insurance", "sort_order": 2},
+    {"slug": "critical_illness_insurance", "label": "Critical Illness Insurance", "sort_order": 3},
+    {"slug": "mental_wellness_insurance", "label": "Mental Wellness Insurance", "sort_order": 4},
+    {"slug": "health_insurance", "label": "Health Insurance", "sort_order": 5},
+    {"slug": "hospital_cash_insurance", "label": "Hospital Cash Insurance", "sort_order": 6},
+    {"slug": "top_up_health_plans", "label": "Top-Up & Super Top-Up Health Plans", "sort_order": 7},
+    {"slug": "income_protection_disability_insurance", "label": "Income Protection / Disability Insurance", "sort_order": 8},
+    {"slug": "job_loss_insurance", "label": "Job Loss Insurance", "sort_order": 9},
+    {"slug": "vehicle_insurance", "label": "Vehicle Insurance", "sort_order": 10},
+    {"slug": "home_insurance", "label": "Home Insurance", "sort_order": 11},
+    {"slug": "property_insurance", "label": "Property Insurance", "sort_order": 12},
+    {"slug": "travel_insurance", "label": "Travel Insurance", "sort_order": 13},
+    {"slug": "business_insurance", "label": "Business Insurance", "sort_order": 14},
+    {"slug": "professional_liability_insurance", "label": "Professional Liability Insurance", "sort_order": 15},
+    {"slug": "cyber_insurance", "label": "Cyber Insurance", "sort_order": 16},
+    {"slug": "employer_liability_insurance", "label": "Employer Liability Insurance", "sort_order": 17},
+    {"slug": "pet_insurance", "label": "Pet Insurance", "sort_order": 18},
+    {"slug": "event_insurance", "label": "Event Insurance", "sort_order": 19},
+    {"slug": "agriculture_insurance", "label": "Agriculture Insurance", "sort_order": 20},
+]
+
+APPROVED_TRANSACTION_CATEGORIES: tuple[str, ...] = tuple(item["label"] for item in TRANSACTION_CATEGORY_CATALOG)
+
+APPROVED_INSURANCE_POLICY_TYPES: tuple[str, ...] = tuple(item["label"] for item in INSURANCE_POLICY_CATALOG)
+
 
 def normalize_db_datetime(value: str | None) -> str | None:
     if value is None:
@@ -363,6 +441,65 @@ def ensure_investment_category_seed() -> None:
                     text(
                         """
                         INSERT OR IGNORE INTO investment_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
+
+
+def ensure_transaction_category_seed() -> None:
+    engine = get_engine()
+    if uses_mysql():
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS transaction_categories (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                slug VARCHAR(120) NOT NULL UNIQUE,
+                label VARCHAR(200) NOT NULL,
+                sort_order INT NOT NULL,
+                is_active TINYINT NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+    else:
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS transaction_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+
+    with engine.begin() as connection:
+        connection.execute(text(create_table_sql))
+        if uses_mysql():
+            for category in TRANSACTION_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT IGNORE INTO transaction_categories (slug, label, sort_order, is_active)
+                        VALUES (:slug, :label, :sort_order, 1)
+                        """
+                    ),
+                    {
+                        "slug": category["slug"],
+                        "label": category["label"],
+                        "sort_order": category["sort_order"],
+                    },
+                )
+        else:
+            for category in TRANSACTION_CATEGORY_CATALOG:
+                connection.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO transaction_categories (slug, label, sort_order, is_active)
                         VALUES (:slug, :label, :sort_order, 1)
                         """
                     ),

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { apiFetch } from "../../lib/api";
+import { ravApiFetch } from "../../lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -44,7 +44,7 @@ export default function RegisterPage() {
     }
 
     try {
-      await apiFetch<{ message: string }>("/api/v1/auth/register", {
+      await ravApiFetch<{ message: string }>("/api/v1/auth/register", {
         method: "POST",
         body: JSON.stringify(payload),
       });

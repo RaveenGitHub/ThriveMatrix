@@ -83,7 +83,7 @@ def test_goal_amount_must_be_positive() -> None:
     assert response.status_code == 422
 
 
-def test_goal_categories_are_restricted_to_approved_indian_catalog() -> None:
+def test_goal_categories_are_restricted_to_approved_thrivematrix_catalog() -> None:
     email = f"goals-categories-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
 

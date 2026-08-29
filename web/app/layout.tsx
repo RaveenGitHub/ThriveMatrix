@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthProvider } from "./auth-context";
+import { RavAuthProvider } from "./auth-context";
 
 export const metadata: Metadata = {
   title: "ThriveMatrix",
@@ -13,7 +13,7 @@ export default function RootLayout({
   return (
     <html lang="en-IN">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <RavAuthProvider>{children}</RavAuthProvider>
       </body>
     </html>
   );

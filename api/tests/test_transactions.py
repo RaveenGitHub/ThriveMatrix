@@ -65,6 +65,43 @@ def test_transaction_amounts_and_types_are_validated() -> None:
     assert response.status_code == 422
 
 
+def test_transaction_categories_are_validated_against_the_approved_catalog() -> None:
+    email = f"tx-catalog-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    valid = client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Sample Bank",
+            "records": [
+                {"date": "2026-08-09", "description": "Grocery top-up", "amount": 1250, "type": "debit", "category": "Grocery"},
+                {"date": "2026-08-09", "description": "Salary", "amount": 55000, "type": "credit", "category": "Salary"},
+            ],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert valid.status_code == 201
+    assert valid.json()["record_count"] == 2
+
+    invalid = client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Sample Bank",
+            "records": [{"date": "2026-08-09", "description": "Cloud storage", "amount": 199, "type": "debit", "category": "Undefined Category"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert invalid.status_code == 422
+
+    fetched = client.get(
+        "/api/v1/transactions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert fetched.status_code == 200
+    assert any(item["category"] == "Grocery" for item in fetched.json()["transactions"])
+    assert any(item["category"] == "Salary" for item in fetched.json()["transactions"])
+
+
 def test_users_only_see_their_own_transactions() -> None:
     alice = f"alice-{uuid.uuid4()}@example.com"
     bob = f"bob-{uuid.uuid4()}@example.com"
@@ -187,5 +224,5 @@ def test_transaction_summary_and_category_aggregation_are_available() -> None:
     )
     assert categories.status_code == 200
     category_payload = categories.json()
-    assert any(item["category"] == "salary" for item in category_payload["categories"])
-    assert any(item["category"] == "housing" for item in category_payload["categories"])
+    assert any(item["category"] == "Salary" for item in category_payload["categories"])
+    assert any(item["category"] == "Misc Expense" for item in category_payload["categories"])

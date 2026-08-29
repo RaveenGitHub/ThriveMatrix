@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const trendData = [
   { month: "Jan", value: 38 },
@@ -25,7 +25,7 @@ type InsightItem = {
 };
 
 export default function AnalyticsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [insights, setInsights] = useState<InsightItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,7 +34,7 @@ export default function AnalyticsPage() {
     const loadInsights = async () => {
       try {
         setLoading(true);
-        const response = await apiFetch<{ insights: InsightItem[] }>(
+        const response = await ravApiFetch<{ insights: InsightItem[] }>(
           "/api/v1/analytics/insights",
         );
         setInsights(response.insights ?? []);
@@ -56,7 +56,7 @@ export default function AnalyticsPage() {
   const maxValue = Math.max(...trendData.map((point) => point.value));
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -64,7 +64,7 @@ export default function AnalyticsPage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -194,6 +194,6 @@ export default function AnalyticsPage() {
           </div>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type Policy = {
   id: string;
@@ -49,12 +49,14 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 const defaultForm = {
   name: "",
   provider: "",
-  policy_type: "health",
+  policy_type: "Health Insurance",
   coverage_amount: "",
   coverage_goal: "",
   premium_amount: "",
   premium_frequency: "yearly",
   status: "active",
+  policy_details: "",
+  goal_mapping: "",
   start_date: new Date().toISOString().slice(0, 10),
   end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
     .toISOString()
@@ -65,7 +67,7 @@ const defaultForm = {
 };
 
 export default function InsurancePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary>({
     policy_count: 0,
@@ -85,9 +87,9 @@ export default function InsurancePage() {
       setLoading(true);
       const [policiesResponse, dashboardResponse, gapsResponse] =
         await Promise.all([
-          apiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
-          apiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
-          apiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
+          ravApiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+          ravApiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
+          ravApiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
         ]);
 
       setPolicies(policiesResponse.policies ?? []);
@@ -106,7 +108,48 @@ export default function InsurancePage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [policiesResponse, dashboardResponse, gapsResponse] =
+          await Promise.all([
+            ravApiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+            ravApiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
+            ravApiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
+          ]);
+
+        if (!active) {
+          return;
+        }
+
+        setPolicies(policiesResponse.policies ?? []);
+        setDashboard(dashboardResponse);
+        setGaps(gapsResponse.gaps ?? []);
+        setError("");
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load insurance data",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
     void loadData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const totalGoal = useMemo(
@@ -137,7 +180,7 @@ export default function InsurancePage() {
     }
 
     try {
-      await apiFetch("/api/v1/insurance/policies", {
+      await ravApiFetch("/api/v1/insurance/policies", {
         method: "POST",
         body: JSON.stringify({
           name,
@@ -147,6 +190,9 @@ export default function InsurancePage() {
           coverage_amount: coverageAmount,
           coverage_goal: coverageGoal > 0 ? coverageGoal : undefined,
           premium_frequency: form.premium_frequency,
+          last_premium_date: form.start_date,
+          policy_details: form.policy_details.trim() || undefined,
+          goal_mapping: form.goal_mapping.trim() || undefined,
           status: form.status,
           start_date: form.start_date,
           end_date: form.end_date,
@@ -168,7 +214,7 @@ export default function InsurancePage() {
   const activeGaps = gaps.filter((item) => item.type !== "coverage_healthy");
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -176,7 +222,7 @@ export default function InsurancePage() {
               TM
             </div>
             <div>
-              <p className="eyebrow">PRIVATE BETA / INDIA-FIRST</p>
+              <p className="eyebrow">PRIVATE BETA / THRIVEMATRIX</p>
               <h1>ThriveMatrix</h1>
             </div>
           </div>
@@ -290,13 +336,50 @@ export default function InsurancePage() {
                       }))
                     }
                   >
-                    <option value="health">Health</option>
-                    <option value="life">Life</option>
-                    <option value="disability">Disability</option>
-                    <option value="critical_illness">Critical illness</option>
-                    <option value="auto">Auto</option>
-                    <option value="home">Home</option>
-                    <option value="liability">Liability</option>
+                    <option value="Life Insurance">Life Insurance</option>
+                    <option value="Accident Insurance">
+                      Accident Insurance
+                    </option>
+                    <option value="Critical Illness Insurance">
+                      Critical Illness Insurance
+                    </option>
+                    <option value="Mental Wellness Insurance">
+                      Mental Wellness Insurance
+                    </option>
+                    <option value="Health Insurance">Health Insurance</option>
+                    <option value="Hospital Cash Insurance">
+                      Hospital Cash Insurance
+                    </option>
+                    <option value="Top-Up &amp; Super Top-Up Health Plans">
+                      Top-Up &amp; Super Top-Up Health Plans
+                    </option>
+                    <option value="Income Protection / Disability Insurance">
+                      Income Protection / Disability Insurance
+                    </option>
+                    <option value="Job Loss Insurance">
+                      Job Loss Insurance
+                    </option>
+                    <option value="Vehicle Insurance">Vehicle Insurance</option>
+                    <option value="Home Insurance">Home Insurance</option>
+                    <option value="Property Insurance">
+                      Property Insurance
+                    </option>
+                    <option value="Travel Insurance">Travel Insurance</option>
+                    <option value="Business Insurance">
+                      Business Insurance
+                    </option>
+                    <option value="Professional Liability Insurance">
+                      Professional Liability Insurance
+                    </option>
+                    <option value="Cyber Insurance">Cyber Insurance</option>
+                    <option value="Employer Liability Insurance">
+                      Employer Liability Insurance
+                    </option>
+                    <option value="Pet Insurance">Pet Insurance</option>
+                    <option value="Event Insurance">Event Insurance</option>
+                    <option value="Agriculture Insurance">
+                      Agriculture Insurance
+                    </option>
                   </select>
                 </label>
 
@@ -382,6 +465,36 @@ export default function InsurancePage() {
                     <option value="pending">Pending</option>
                     <option value="inactive">Inactive</option>
                   </select>
+                </label>
+
+                <label className="field field-wide">
+                  <span>Policy details</span>
+                  <textarea
+                    value={form.policy_details}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        policy_details: event.target.value,
+                      }))
+                    }
+                    placeholder="Policy details, rider coverage, plan notes"
+                    rows={3}
+                  />
+                </label>
+
+                <label className="field field-wide">
+                  <span>Goal mapping</span>
+                  <textarea
+                    value={form.goal_mapping}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        goal_mapping: event.target.value,
+                      }))
+                    }
+                    placeholder="Coverage goal vs current protection, e.g. Family protection / medical gap"
+                    rows={3}
+                  />
                 </label>
 
                 <label className="field field-wide">
@@ -533,6 +646,6 @@ export default function InsurancePage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

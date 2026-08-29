@@ -314,8 +314,10 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
         json={"email": email},
     )
     assert forgot_response.status_code == 200
-    assert forgot_response.json()["status"] == "ok"
-    assert "token" not in forgot_response.json()
+    payload = forgot_response.json()
+    assert payload["status"] == "ok"
+    assert payload["token"]
+    assert payload["reset_url"].endswith(f"email={email}&token={payload['token']}")
 
     token_record = next(
         (
