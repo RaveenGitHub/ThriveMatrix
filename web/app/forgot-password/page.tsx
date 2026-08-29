@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { apiFetch } from "../../lib/api";
+import { ravApiFetch } from "../../lib/api";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -25,7 +25,7 @@ export default function ForgotPasswordPage() {
     }
 
     try {
-      const response = await apiFetch<{
+      const response = await ravApiFetch<{
         token?: string;
         message?: string;
         status?: string;
@@ -74,7 +74,7 @@ export default function ForgotPasswordPage() {
     }
 
     try {
-      await apiFetch<{ status?: string; message?: string }>(
+      await ravApiFetch<{ status?: string; message?: string }>(
         "/api/v1/auth/reset-password",
         {
           method: "POST",

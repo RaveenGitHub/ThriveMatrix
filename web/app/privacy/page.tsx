@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const consentDefaults = {
   analytics: true,
@@ -20,7 +20,7 @@ const privacyActions = [
 ];
 
 export default function PrivacyPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [consent, setConsent] = useState(consentDefaults);
 
   const toggle = (key: keyof typeof consentDefaults) => {
@@ -28,7 +28,7 @@ export default function PrivacyPage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -208,6 +208,6 @@ export default function PrivacyPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

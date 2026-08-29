@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type AlertRecord = {
   type: string;
@@ -14,7 +14,7 @@ type AlertRecord = {
 };
 
 export default function AlertsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -23,7 +23,7 @@ export default function AlertsPage() {
     const loadAlerts = async () => {
       try {
         setLoading(true);
-        const response = await apiFetch<{ alerts: AlertRecord[] }>(
+        const response = await ravApiFetch<{ alerts: AlertRecord[] }>(
           "/api/v1/alerts",
         );
         setAlerts(response.alerts ?? []);
@@ -56,7 +56,7 @@ export default function AlertsPage() {
   }, [alerts]);
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -180,6 +180,6 @@ export default function AlertsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

@@ -2,11 +2,15 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "./auth-context";
+import { useRavAuth } from "./auth-context";
 
-export function ProtectedLayout({ children }: { children: React.ReactNode }) {
+export function RavProtectedLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const router = useRouter();
-  const { isAuthenticated, isReady } = useAuth();
+  const { isAuthenticated, isReady } = useRavAuth();
 
   useEffect(() => {
     if (!isReady) {
@@ -28,3 +32,5 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
+
+export const ProtectedLayout = RavProtectedLayout;

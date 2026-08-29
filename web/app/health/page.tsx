@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const healthStats = [
   {
@@ -39,10 +39,10 @@ const actions = [
 ];
 
 export default function HealthPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -143,6 +143,6 @@ export default function HealthPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

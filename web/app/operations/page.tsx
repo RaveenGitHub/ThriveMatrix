@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type OperationsSummary = {
   status: string;
@@ -79,7 +79,7 @@ type ReleaseDecision = {
 };
 
 export default function OperationsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [summary, setSummary] = useState<OperationsSummary | null>(null);
   const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
   const [securityReview, setSecurityReview] = useState<SecurityReview | null>(
@@ -107,12 +107,12 @@ export default function OperationsPage() {
           runbookResponse,
           releaseDecisionResponse,
         ] = await Promise.all([
-          apiFetch<OperationsSummary>("/api/v1/operations/summary"),
-          apiFetch<RecoveryStatus>("/api/v1/operations/recovery"),
-          apiFetch<SecurityReview>("/api/v1/operations/security-review"),
-          apiFetch<LaunchGovernance>("/api/v1/launch/governance"),
-          apiFetch<ReleaseRunbook>("/api/v1/release/runbook"),
-          apiFetch<ReleaseDecision>("/api/v1/release/decision"),
+          ravApiFetch<OperationsSummary>("/api/v1/operations/summary"),
+          ravApiFetch<RecoveryStatus>("/api/v1/operations/recovery"),
+          ravApiFetch<SecurityReview>("/api/v1/operations/security-review"),
+          ravApiFetch<LaunchGovernance>("/api/v1/launch/governance"),
+          ravApiFetch<ReleaseRunbook>("/api/v1/release/runbook"),
+          ravApiFetch<ReleaseDecision>("/api/v1/release/decision"),
         ]);
 
         setSummary(summaryResponse);
@@ -159,7 +159,7 @@ export default function OperationsPage() {
   );
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -373,6 +373,6 @@ export default function OperationsPage() {
           </article>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

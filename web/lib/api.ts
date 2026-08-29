@@ -4,7 +4,7 @@ export const API_BASE_URL =
     ? `${window.location.protocol}//${window.location.hostname}:8000`
     : "http://localhost:8000");
 
-export async function apiFetch<T>(
+export async function ravApiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
@@ -50,3 +50,5 @@ export async function apiFetch<T>(
 
   return (payload ?? undefined) as T;
 }
+
+export const apiFetch = ravApiFetch;

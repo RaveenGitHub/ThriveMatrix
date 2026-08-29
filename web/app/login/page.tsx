@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { refreshSession } = useAuth();
+  const { refreshSession } = useRavAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,7 +18,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      await apiFetch<{ access_token: string; refresh_token: string }>(
+      await ravApiFetch<{ access_token: string; refresh_token: string }>(
         "/api/v1/auth/login",
         {
           method: "POST",

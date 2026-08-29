@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type Policy = {
   id: string;
@@ -67,7 +67,7 @@ const defaultForm = {
 };
 
 export default function InsurancePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary>({
     policy_count: 0,
@@ -87,9 +87,9 @@ export default function InsurancePage() {
       setLoading(true);
       const [policiesResponse, dashboardResponse, gapsResponse] =
         await Promise.all([
-          apiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
-          apiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
-          apiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
+          ravApiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+          ravApiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
+          ravApiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
         ]);
 
       setPolicies(policiesResponse.policies ?? []);
@@ -115,9 +115,9 @@ export default function InsurancePage() {
         setLoading(true);
         const [policiesResponse, dashboardResponse, gapsResponse] =
           await Promise.all([
-            apiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
-            apiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
-            apiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
+            ravApiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+            ravApiFetch<DashboardSummary>("/api/v1/insurance/dashboard"),
+            ravApiFetch<{ gaps: GapItem[] }>("/api/v1/insurance/gaps"),
           ]);
 
         if (!active) {
@@ -180,7 +180,7 @@ export default function InsurancePage() {
     }
 
     try {
-      await apiFetch("/api/v1/insurance/policies", {
+      await ravApiFetch("/api/v1/insurance/policies", {
         method: "POST",
         body: JSON.stringify({
           name,
@@ -214,7 +214,7 @@ export default function InsurancePage() {
   const activeGaps = gaps.filter((item) => item.type !== "coverage_healthy");
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -646,6 +646,6 @@ export default function InsurancePage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

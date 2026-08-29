@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type Goal = {
   id: string;
@@ -70,7 +70,7 @@ const defaultSummary: DashboardSummary = {
 };
 
 export default function HomePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [summary, setSummary] = useState<DashboardSummary>(defaultSummary);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
@@ -88,10 +88,10 @@ export default function HomePage() {
           investmentsResponse,
           policiesResponse,
         ] = await Promise.all([
-          apiFetch<DashboardSummary>("/api/v1/dashboard/summary"),
-          apiFetch<{ goals: Goal[] }>("/api/v1/goals"),
-          apiFetch<{ investments: Investment[] }>("/api/v1/investments"),
-          apiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
+          ravApiFetch<DashboardSummary>("/api/v1/dashboard/summary"),
+          ravApiFetch<{ goals: Goal[] }>("/api/v1/goals"),
+          ravApiFetch<{ investments: Investment[] }>("/api/v1/investments"),
+          ravApiFetch<{ policies: Policy[] }>("/api/v1/insurance/policies"),
         ]);
 
         setSummary(summaryResponse);
@@ -212,7 +212,7 @@ export default function HomePage() {
   }));
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -489,6 +489,6 @@ export default function HomePage() {
           </article>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

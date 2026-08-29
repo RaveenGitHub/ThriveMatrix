@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type Transaction = {
   id?: string;
@@ -82,7 +82,7 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
 });
 
 export default function TransactionsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>({
     income_total: 0,
@@ -105,8 +105,8 @@ export default function TransactionsPage() {
     try {
       setLoading(true);
       const [listResponse, summaryResponse] = await Promise.all([
-        apiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
-        apiFetch<TransactionSummary>("/api/v1/transactions/summary"),
+        ravApiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
+        ravApiFetch<TransactionSummary>("/api/v1/transactions/summary"),
       ]);
       setTransactions(listResponse.transactions ?? []);
       setSummary(summaryResponse);
@@ -129,8 +129,8 @@ export default function TransactionsPage() {
       try {
         setLoading(true);
         const [listResponse, summaryResponse] = await Promise.all([
-          apiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
-          apiFetch<TransactionSummary>("/api/v1/transactions/summary"),
+          ravApiFetch<{ transactions: Transaction[] }>("/api/v1/transactions"),
+          ravApiFetch<TransactionSummary>("/api/v1/transactions/summary"),
         ]);
 
         if (!active) {
@@ -184,7 +184,7 @@ export default function TransactionsPage() {
     }
 
     try {
-      await apiFetch("/api/v1/transactions/import", {
+      await ravApiFetch("/api/v1/transactions/import", {
         method: "POST",
         body: JSON.stringify({
           source_name: "ui-import",
@@ -219,7 +219,7 @@ export default function TransactionsPage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -426,6 +426,6 @@ export default function TransactionsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

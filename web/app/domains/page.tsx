@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../lib/api";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { ravApiFetch } from "../../lib/api";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 type DomainSummaryResponse = {
   status: string;
@@ -25,7 +25,7 @@ type DomainRecord = {
 };
 
 export default function DomainsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [summary, setSummary] = useState<DomainSummaryResponse | null>(null);
   const [healthRecords, setHealthRecords] = useState<DomainRecord[]>([]);
   const [legalContacts, setLegalContacts] = useState<DomainRecord[]>([]);
@@ -105,9 +105,9 @@ export default function DomainsPage() {
           relationshipsResponse,
           readinessResponse,
         ] = await Promise.all([
-          apiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
-          apiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
-          apiFetch<{
+          ravApiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
+          ravApiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
+          ravApiFetch<{
             contacts: Array<{
               id: string;
               name: string;
@@ -116,10 +116,10 @@ export default function DomainsPage() {
               email: string;
             }>;
           }>("/api/v1/legal/emergency-contacts"),
-          apiFetch<{ records: DomainRecord[] }>(
+          ravApiFetch<{ records: DomainRecord[] }>(
             "/api/v1/relationships/records",
           ),
-          apiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
+          ravApiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
         ]);
 
         if (!active) {
@@ -206,7 +206,7 @@ export default function DomainsPage() {
         },
       };
 
-      await apiFetch(endpointMap[form.category], {
+      await ravApiFetch(endpointMap[form.category], {
         method: "POST",
         body: JSON.stringify(payloadMap[form.category]),
       });
@@ -250,7 +250,7 @@ export default function DomainsPage() {
   ];
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -436,6 +436,6 @@ export default function DomainsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

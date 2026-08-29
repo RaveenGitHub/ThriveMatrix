@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const preferencesDefaults = {
   reminders: true,
@@ -27,7 +27,7 @@ const accountTiles = [
 ];
 
 export default function ProfilePage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
   const [preferences, setPreferences] = useState(preferencesDefaults);
 
   const toggle = (key: keyof typeof preferencesDefaults) => {
@@ -35,7 +35,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -241,6 +241,6 @@ export default function ProfilePage() {
           </ul>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }

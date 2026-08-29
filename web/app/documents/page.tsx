@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "../auth-context";
-import { ProtectedLayout } from "../protected-layout";
+import { useRavAuth } from "../auth-context";
+import { RavProtectedLayout } from "../protected-layout";
 
 const documents = [
   {
@@ -43,10 +43,10 @@ const vaultSummary = [
 ];
 
 export default function DocumentsPage() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout } = useRavAuth();
 
   return (
-    <ProtectedLayout>
+    <RavProtectedLayout>
       <main className="page-shell feature-page">
         <header className="topbar">
           <div className="brand-wrap">
@@ -173,6 +173,6 @@ export default function DocumentsPage() {
           </aside>
         </section>
       </main>
-    </ProtectedLayout>
+    </RavProtectedLayout>
   );
 }
