@@ -9,4 +9,3 @@ api/**/__pycache__/
 api/data/*.db
 .env
 coverage/
-docs/
