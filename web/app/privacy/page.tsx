@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
@@ -22,9 +22,42 @@ const privacyActions = [
 export default function PrivacyPage() {
   const { isAdmin, logout } = useRavAuth();
   const [consent, setConsent] = useState(consentDefaults);
+  const [lastAction, setLastAction] = useState(
+    "Consent review prepared for the current ownership window.",
+  );
+
+  const statusSummary = useMemo(() => {
+    const enabledCount = Object.values(consent).filter(Boolean).length;
+    const totalCount = Object.keys(consent).length;
+
+    return [
+      {
+        label: "Consent state",
+        value: `${enabledCount}/${totalCount} enabled`,
+      },
+      {
+        label: "Retention",
+        value: consent.deletionReview ? "Review" : "Manual",
+      },
+      {
+        label: "Data access",
+        value: consent.export ? "Owner scoped" : "Restricted",
+      },
+    ];
+  }, [consent]);
 
   const toggle = (key: keyof typeof consentDefaults) => {
-    setConsent((current) => ({ ...current, [key]: !current[key] }));
+    setConsent((current) => {
+      const next = { ...current, [key]: !current[key] };
+      setLastAction(
+        `${key.charAt(0).toUpperCase() + key.slice(1)} settings updated for review.`,
+      );
+      return next;
+    });
+  };
+
+  const runAction = (step: string) => {
+    setLastAction(`${step} scheduled for the next privacy review window.`);
   };
 
   return (
@@ -75,18 +108,12 @@ export default function PrivacyPage() {
           </div>
 
           <div className="summary-strip" aria-label="Privacy summary">
-            <div>
-              <span className="meta-label">Consent state</span>
-              <strong>Updated</strong>
-            </div>
-            <div>
-              <span className="meta-label">Retention</span>
-              <strong>Review</strong>
-            </div>
-            <div>
-              <span className="meta-label">Data access</span>
-              <strong>Owner scoped</strong>
-            </div>
+            {statusSummary.map((item) => (
+              <div key={item.label}>
+                <span className="meta-label">{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -198,10 +225,30 @@ export default function PrivacyPage() {
               </div>
             </div>
 
-            <ul className="activity-list">
+            <div className="goal-list">
+              <div className="goal-item">
+                <div className="goal-topline">
+                  <strong>System status</strong>
+                  <span className="pill success">Live</span>
+                </div>
+                <div className="goal-details">
+                  <span>{lastAction}</span>
+                </div>
+              </div>
+            </div>
+
+            <ul className="activity-list" style={{ marginTop: 18 }}>
               {privacyActions.map((step) => (
                 <li key={step}>
                   <span>{step}</span>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => runAction(step)}
+                    style={{ padding: "0.5rem 0.8rem" }}
+                  >
+                    Run
+                  </button>
                 </li>
               ))}
             </ul>

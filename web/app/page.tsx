@@ -1,3 +1,10 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useRavAuth } from "./auth-context";
+
 const navItems = [
   "Overview",
   "Goals",
@@ -124,6 +131,23 @@ const governance = [
 ];
 
 export default function Home() {
+  const router = useRouter();
+  const { isAuthenticated, isReady } = useRavAuth();
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    if (isAuthenticated) {
+      router.replace("/home");
+    }
+  }, [isAuthenticated, isReady, router]);
+
+  if (!isReady || isAuthenticated) {
+    return <main className="page-shell">Redirecting to your dashboard…</main>;
+  }
+
   return (
     <main className="page-shell">
       <header className="topbar">
@@ -145,9 +169,22 @@ export default function Home() {
           ))}
         </nav>
 
-        <button className="primary-btn" type="button">
-          + Add record
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <Link
+            href="/login"
+            className="primary-btn"
+            style={{ textDecoration: "none" }}
+          >
+            Sign in
+          </Link>
+          <Link
+            href="/register"
+            className="ghost-btn"
+            style={{ textDecoration: "none" }}
+          >
+            Register
+          </Link>
+        </div>
       </header>
 
       <section className="hero panel">
@@ -156,6 +193,29 @@ export default function Home() {
           <h2>
             Build wealth, security, and life readiness with one clear view.
           </h2>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              marginTop: 20,
+              flexWrap: "wrap",
+            }}
+          >
+            <Link
+              href="/login"
+              className="primary-btn"
+              style={{ textDecoration: "none" }}
+            >
+              Continue to app
+            </Link>
+            <Link
+              href="/register"
+              className="ghost-btn"
+              style={{ textDecoration: "none" }}
+            >
+              Create account
+            </Link>
+          </div>
         </div>
 
         <div className="hero-meta">

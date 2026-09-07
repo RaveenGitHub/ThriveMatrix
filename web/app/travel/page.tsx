@@ -1,41 +1,126 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useMemo, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
-const tripStats = [
+type TripPlan = {
+  id: string;
+  destination: string;
+  timeframe: string;
+  budget: number;
+  status: "Planned" | "Queued" | "Booked";
+  notes: string;
+};
+
+const initialTrips: TripPlan[] = [
   {
-    title: "Travel readiness",
-    value: "74%",
-    detail: "Trip planning remains comfortably ahead of the target date.",
+    id: "TRIP-101",
+    destination: "Bali",
+    timeframe: "October 2026",
+    budget: 160000,
+    status: "Planned",
+    notes: "Flex budget remains intact with enough contingency for changes.",
   },
   {
-    title: "Budget envelope",
-    value: "₹1.6L",
-    detail: "Current budget supports a balanced travel plan without strain.",
+    id: "TRIP-204",
+    destination: "Goa",
+    timeframe: "November 2026",
+    budget: 75000,
+    status: "Queued",
+    notes: "Short trip remains on the lower-risk planning list.",
   },
   {
-    title: "Savings cadence",
-    value: "₹12K",
-    detail: "Contribution pace remains consistent and resilient.",
-  },
-  {
-    title: "Flex buffer",
-    value: "Healthy",
-    detail: "There is enough slack to absorb medium changes in trip costs.",
+    id: "TRIP-318",
+    destination: "Himachal",
+    timeframe: "December 2026",
+    budget: 90000,
+    status: "Booked",
+    notes: "Reservation and transport details are already in place.",
   },
 ];
 
-const actions = [
-  "Align the trip budget with current airfare and stay assumptions.",
-  "Review the itinerary against the planned travel timeline and slack.",
-  "Check whether this should remain a self-funded or partially shared trip plan.",
-  "Finalize a backup plan for weather, schedule, or transit disruptions.",
-];
+const defaultForm = {
+  destination: "",
+  timeframe: "",
+  budget: "",
+  status: "Planned" as TripPlan["status"],
+  notes: "",
+};
+
+const indianCurrency = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
 
 export default function TravelPage() {
   const { isAdmin, logout } = useRavAuth();
+  const [trips, setTrips] = useState<TripPlan[]>(initialTrips);
+  const [form, setForm] = useState(defaultForm);
+  const [error, setError] = useState("");
+
+  const tripStats = useMemo(() => {
+    const totalBudget = trips.reduce((sum, item) => sum + item.budget, 0);
+    const bookedCount = trips.filter((item) => item.status === "Booked").length;
+
+    return [
+      {
+        title: "Travel readiness",
+        value: `${Math.max(70, 74 + bookedCount)}%`,
+        detail: "Trip planning remains comfortably ahead of the target date.",
+      },
+      {
+        title: "Budget envelope",
+        value: indianCurrency.format(totalBudget),
+        detail: "Current budget supports a balanced travel plan without strain.",
+      },
+      {
+        title: "Savings cadence",
+        value: indianCurrency.format(Math.round(totalBudget / 12)),
+        detail: "Contribution pace remains consistent and resilient.",
+      },
+      {
+        title: "Flex buffer",
+        value: bookedCount > 0 ? "Healthy" : "Balanced",
+        detail: "There is enough slack to absorb medium changes in trip costs.",
+      },
+    ];
+  }, [trips]);
+
+  const actions = [
+    "Align the trip budget with current airfare and stay assumptions.",
+    "Review the itinerary against the planned travel timeline and slack.",
+    "Check whether this should remain a self-funded or partially shared trip plan.",
+    "Finalize a backup plan for weather, schedule, or transit disruptions.",
+  ];
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const destination = form.destination.trim();
+    const timeframe = form.timeframe.trim();
+    const budget = Number(form.budget);
+
+    if (!destination || !timeframe || Number.isNaN(budget) || budget <= 0) {
+      setError("Destination, timeframe, and a valid budget are required.");
+      return;
+    }
+
+    const nextTrip: TripPlan = {
+      id: `TRIP-${Math.floor(Date.now() / 1000) % 100000}`,
+      destination,
+      timeframe,
+      budget,
+      status: form.status,
+      notes: form.notes.trim() || "No additional notes recorded.",
+    };
+
+    setTrips((current) => [nextTrip, ...current]);
+    setForm(defaultForm);
+    setError("");
+  };
 
   return (
     <RavProtectedLayout>
@@ -88,7 +173,7 @@ export default function TravelPage() {
           <div className="summary-strip" aria-label="Travel summary">
             <div>
               <span className="meta-label">Timing</span>
-              <strong>Planned</strong>
+              <strong>{trips.some((trip) => trip.status === "Booked") ? "Booked" : "Planned"}</strong>
             </div>
             <div>
               <span className="meta-label">Budget</span>
@@ -137,6 +222,105 @@ export default function TravelPage() {
               ))}
             </ul>
           </aside>
+        </section>
+
+        <section className="panel bottom-grid">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">PLAN</p>
+              <h3>Travel roadmap</h3>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="goal-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Destination</span>
+                <input
+                  value={form.destination}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, destination: event.target.value }))
+                  }
+                  placeholder="e.g. Bali"
+                />
+              </label>
+
+              <label className="field">
+                <span>Timeframe</span>
+                <input
+                  value={form.timeframe}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, timeframe: event.target.value }))
+                  }
+                  placeholder="e.g. October 2026"
+                />
+              </label>
+
+              <label className="field">
+                <span>Budget</span>
+                <input
+                  type="number"
+                  value={form.budget}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, budget: event.target.value }))
+                  }
+                  placeholder="160000"
+                />
+              </label>
+
+              <label className="field">
+                <span>Status</span>
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      status: event.target.value as TripPlan["status"],
+                    }))
+                  }
+                >
+                  <option value="Planned">Planned</option>
+                  <option value="Queued">Queued</option>
+                  <option value="Booked">Booked</option>
+                </select>
+              </label>
+
+              <label className="field field-wide">
+                <span>Trip notes</span>
+                <textarea
+                  value={form.notes}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, notes: event.target.value }))
+                  }
+                  placeholder="Add context around booking, stakeholders, or flexibility."
+                />
+              </label>
+            </div>
+
+            {error ? <p className="form-error">{error}</p> : null}
+
+            <div className="button-row">
+              <button type="submit" className="primary-btn">
+                Save trip
+              </button>
+            </div>
+          </form>
+
+          <div className="goal-list compact-list">
+            {trips.map((trip) => (
+              <div className="goal-item" key={trip.id}>
+                <div className="goal-topline">
+                  <strong>{trip.destination}</strong>
+                  <span className="pill success">{trip.status}</span>
+                </div>
+                <div className="goal-details">
+                  <span>{trip.timeframe}</span>
+                  <span>{indianCurrency.format(trip.budget)}</span>
+                  <span>{trip.notes}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       </main>
     </RavProtectedLayout>
