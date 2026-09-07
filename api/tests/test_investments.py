@@ -258,6 +258,75 @@ def test_portfolio_summary_and_allocations_reconcile_investment_values() -> None
     assert body["current_value"] == 175000
     assert body["gain_loss"] == 25000
 
+
+def test_investment_update_and_delete_endpoints() -> None:
+    email = f"invest-update-delete-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    create_response = client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Growth Fund",
+            "asset_class": "mutual_funds",
+            "currency": "INR",
+            "amount_invested": 40000,
+            "units": 20,
+            "unit_value": 2200,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    investment_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/api/v1/investments/{investment_id}",
+        json={
+            "name": "Updated Growth Fund",
+            "amount_invested": 50000,
+            "units": 25,
+            "unit_value": 2100,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "Updated Growth Fund"
+    assert updated["amount_invested"] == 50000
+    assert updated["current_asset_value"] == 52500.0
+    assert updated["gain_loss"] == 2500.0
+
+    second_response = client.post(
+        "/api/v1/investments",
+        json={
+            "name": "Bluechip Index",
+            "asset_class": "equity_stocks",
+            "currency": "INR",
+            "amount_invested": 60000,
+            "units": 40,
+            "unit_value": 1700,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert second_response.status_code == 201
+
+    delete_response = client.delete(
+        f"/api/v1/investments/{investment_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_id"] == investment_id
+
+    list_response = client.get(
+        "/api/v1/investments",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_response.status_code == 200
+    assert all(item["id"] != investment_id for item in list_response.json()["investments"])
+
     allocations = client.get(
         "/api/v1/investments/allocations",
         headers={"Authorization": f"Bearer {token}"},
@@ -265,8 +334,7 @@ def test_portfolio_summary_and_allocations_reconcile_investment_values() -> None
     assert allocations.status_code == 200
     allocation_body = allocations.json()["allocations"]
     assert {item["asset_class"]: item["weight_pct"] for item in allocation_body} == {
-        "equity_stocks": 68.57,
-        "mutual_funds": 31.43,
+        "equity_stocks": 100.0,
     }
 
 

@@ -226,3 +226,51 @@ def test_transaction_summary_and_category_aggregation_are_available() -> None:
     category_payload = categories.json()
     assert any(item["category"] == "Salary" for item in category_payload["categories"])
     assert any(item["category"] == "Misc Expense" for item in category_payload["categories"])
+
+
+def test_transaction_update_and_delete_endpoints() -> None:
+    email = f"tx-update-delete-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    create_response = client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Sample Bank",
+            "records": [
+                {"date": "2026-08-10", "description": "Groceries", "amount": 2500, "type": "debit", "category": "Grocery"},
+            ],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    transaction_id = create_response.json()["transactions"][0]["id"]
+
+    update_response = client.put(
+        f"/api/v1/transactions/{transaction_id}",
+        json={
+            "description": "Fresh groceries",
+            "amount": 2750,
+            "type": "debit",
+            "category": "Grocery",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["description"] == "Fresh groceries"
+    assert payload["amount"] == 2750.0
+    assert payload["category"] == "Grocery"
+
+    delete_response = client.delete(
+        f"/api/v1/transactions/{transaction_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_id"] == transaction_id
+
+    list_response = client.get(
+        "/api/v1/transactions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_response.status_code == 200
+    assert all(item["id"] != transaction_id for item in list_response.json()["transactions"])

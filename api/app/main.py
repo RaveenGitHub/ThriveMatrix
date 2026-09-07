@@ -509,6 +509,30 @@ class InvestmentCreateRequest(BaseModel):
         return self.current_asset_value - Decimal(str(self.amount_invested))
 
 
+class InvestmentUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    asset_class: str | None = Field(default=None, min_length=1, max_length=100)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    amount_invested: float | None = Field(default=None, gt=0)
+    units: float | None = Field(default=None, gt=0)
+    unit_value: float | None = Field(default=None, gt=0)
+    valuation_source: str | None = Field(default=None, min_length=1, max_length=100)
+    valuation_timestamp: str | None = None
+    goal_id: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("asset_class")
+    @classmethod
+    def validate_asset_class(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in APPROVED_INVESTMENT_CATEGORIES:
+            allowed = ", ".join(APPROVED_INVESTMENT_CATEGORIES)
+            raise ValueError(f"asset_class must be one of: {allowed}")
+        return normalized
+
+
 class TransactionRecord(BaseModel):
     date: str
     description: str = Field(min_length=1, max_length=200)
@@ -568,6 +592,46 @@ class TransactionReviewRecord(BaseModel):
 class TransactionImportRequest(BaseModel):
     source_name: str = Field(min_length=1, max_length=200)
     records: list[TransactionRecord]
+
+
+class TransactionUpdateRequest(BaseModel):
+    date: str | None = None
+    description: str | None = Field(default=None, min_length=1, max_length=200)
+    amount: float | None = Field(default=None, gt=0)
+    type: str | None = None
+    category: str | None = None
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("description cannot be blank")
+        return normalized
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"credit", "debit"}:
+            raise ValueError("Transaction type must be credit or debit")
+        return normalized
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Transaction category is required")
+        if normalized not in APPROVED_TRANSACTION_CATEGORIES:
+            raise ValueError(f"Unsupported transaction category: {normalized}")
+        return normalized
 
 
 class TransactionReviewRequest(BaseModel):
@@ -649,6 +713,65 @@ class InsurancePolicyCreateRequest(BaseModel):
             return renewal_date.date() >= datetime.fromisoformat(self.start_date).date()
         except ValueError:
             return False
+
+
+class InsurancePolicyUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    provider: str | None = Field(default=None, min_length=1, max_length=200)
+    policy_type: str | None = None
+    premium_amount: float | None = Field(default=None, gt=0)
+    coverage_amount: float | None = Field(default=None, gt=0)
+    coverage_goal: float | None = Field(default=None, ge=0)
+    premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
+    last_premium_date: str | None = None
+    policy_details: str | None = Field(default=None, max_length=1000)
+    goal_mapping: str | None = Field(default=None, max_length=500)
+    start_date: str | None = None
+    end_date: str | None = None
+    renewal_date: str | None = None
+    status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_type")
+    @classmethod
+    def normalize_policy_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Insurance policy type is required")
+
+        legacy_map = {
+            "health": "health",
+            "life": "life",
+            "disability": "disability",
+            "critical_illness": "critical_illness",
+            "auto": "auto",
+            "home": "home",
+            "liability": "liability",
+        }
+        lookup_key = normalized.lower()
+        if lookup_key in legacy_map:
+            return legacy_map[lookup_key]
+
+        if normalized in APPROVED_INSURANCE_POLICY_TYPES:
+            return normalized
+
+        for item in APPROVED_INSURANCE_POLICY_TYPES:
+            if item.lower() == normalized.lower():
+                return item
+
+        raise ValueError(f"Unsupported insurance policy type: {normalized}")
+
+    @field_validator("status")
+    @classmethod
+    def normalize_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        status_values = {"active": "active", "inactive": "inactive", "expired": "expired", "renewal_due": "renewal_due", "pending": "pending"}
+        if normalized not in status_values:
+            raise ValueError("Insurance status must be active, inactive, expired, renewal_due or pending")
+        return status_values[normalized]
 
 
 class AnalyticsSnapshotCreateRequest(BaseModel):
@@ -2159,6 +2282,13 @@ def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
     return [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user_email]
 
 
+def _get_policy_for_user(policy_id: str, user_email: str) -> dict[str, Any]:
+    for policy in _INSURANCE_POLICIES:
+        if policy["id"] == policy_id and policy["owner_email"] == user_email:
+            return policy
+    raise HTTPException(status_code=404, detail="Insurance policy not found")
+
+
 def _calculate_policy_gap_metrics(policy: dict[str, Any]) -> dict[str, float]:
     coverage_goal = float(policy.get("coverage_goal") or 0.0)
     coverage_amount = float(policy.get("coverage_amount") or 0.0)
@@ -2201,6 +2331,13 @@ def _get_goal_for_user(goal_id: str, user_email: str) -> dict[str, Any]:
         if goal["id"] == goal_id and goal["owner_email"] == user_email:
             return goal
     raise HTTPException(status_code=404, detail="Goal not found")
+
+
+def _get_investment_for_user(investment_id: str, user_email: str) -> dict[str, Any]:
+    for investment in _INVESTMENTS:
+        if investment["id"] == investment_id and investment["owner_email"] == user_email:
+            return investment
+    raise HTTPException(status_code=404, detail="Investment not found")
 
 
 def _calculate_goal_progress(goal: dict[str, Any], user_email: str) -> dict[str, float | int | str]:
@@ -2516,6 +2653,63 @@ def investment_allocations(user: dict[str, Any] = Depends(_get_current_user)) ->
     return {"allocations": allocations}
 
 
+@app.get("/api/v1/investments/{investment_id}", tags=["investments"])
+def get_investment(investment_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return _get_investment_for_user(investment_id, user["email"])
+
+
+@app.put("/api/v1/investments/{investment_id}", tags=["investments"])
+def update_investment(
+    investment_id: str,
+    payload: InvestmentUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    investment = _get_investment_for_user(investment_id, user["email"])
+
+    if payload.name is not None:
+        investment["name"] = payload.name
+    if payload.asset_class is not None:
+        investment["asset_class"] = payload.asset_class
+    if payload.currency is not None:
+        investment["currency"] = payload.currency
+    if payload.amount_invested is not None:
+        investment["amount_invested"] = payload.amount_invested
+    if payload.units is not None:
+        investment["units"] = payload.units
+    if payload.unit_value is not None:
+        investment["unit_value"] = payload.unit_value
+    if payload.valuation_source is not None:
+        investment["valuation_source"] = payload.valuation_source
+    if payload.valuation_timestamp is not None:
+        investment["valuation_timestamp"] = payload.valuation_timestamp
+    if payload.goal_id is not None:
+        goal = next(
+            (
+                goal
+                for goal in _GOALS
+                if goal["id"] == payload.goal_id and goal["owner_email"] == user["email"]
+            ),
+            None,
+        )
+        if goal is None:
+            raise HTTPException(status_code=404, detail="Goal not found")
+        investment["goal_id"] = payload.goal_id
+    if payload.idempotency_key is not None:
+        investment["idempotency_key"] = payload.idempotency_key
+
+    current_asset_value = Decimal(str(investment["units"])) * Decimal(str(investment["unit_value"]))
+    investment["current_asset_value"] = float(current_asset_value)
+    investment["gain_loss"] = float(current_asset_value - Decimal(str(investment["amount_invested"])))
+    return investment
+
+
+@app.delete("/api/v1/investments/{investment_id}", tags=["investments"])
+def delete_investment(investment_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, str]:
+    investment = _get_investment_for_user(investment_id, user["email"])
+    _INVESTMENTS.remove(investment)
+    return {"deleted_id": investment_id, "owner_email": user["email"]}
+
+
 @app.post("/api/v1/insurance/policies", tags=["insurance"], status_code=status.HTTP_201_CREATED)
 def create_insurance_policy(
     payload: InsurancePolicyCreateRequest,
@@ -2552,6 +2746,53 @@ def create_insurance_policy(
 def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     owner_policies = [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]]
     return {"policies": [_enrich_policy(policy) for policy in owner_policies]}
+
+
+@app.put("/api/v1/insurance/policies/{policy_id}", tags=["insurance"])
+def update_insurance_policy(
+    policy_id: str,
+    payload: InsurancePolicyUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    policy = _get_policy_for_user(policy_id, user["email"])
+
+    if payload.name is not None:
+        policy["name"] = payload.name
+    if payload.provider is not None:
+        policy["provider"] = payload.provider
+    if payload.policy_type is not None:
+        policy["policy_type"] = payload.policy_type
+    if payload.premium_amount is not None:
+        policy["premium_amount"] = payload.premium_amount
+    if payload.coverage_amount is not None:
+        policy["coverage_amount"] = payload.coverage_amount
+    if payload.coverage_goal is not None:
+        policy["coverage_goal"] = payload.coverage_goal
+    if payload.premium_frequency is not None:
+        policy["premium_frequency"] = payload.premium_frequency
+    if payload.last_premium_date is not None:
+        policy["last_premium_date"] = payload.last_premium_date
+    if payload.policy_details is not None:
+        policy["policy_details"] = payload.policy_details
+    if payload.goal_mapping is not None:
+        policy["goal_mapping"] = payload.goal_mapping
+    if payload.start_date is not None:
+        policy["start_date"] = payload.start_date
+    if payload.end_date is not None:
+        policy["end_date"] = payload.end_date
+    if payload.renewal_date is not None:
+        policy["renewal_date"] = payload.renewal_date
+    if payload.status is not None:
+        policy["status"] = payload.status
+
+    return _enrich_policy(policy)
+
+
+@app.delete("/api/v1/insurance/policies/{policy_id}", tags=["insurance"])
+def delete_insurance_policy(policy_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, str]:
+    policy = _get_policy_for_user(policy_id, user["email"])
+    _INSURANCE_POLICIES.remove(policy)
+    return {"deleted_id": policy_id, "owner_email": user["email"]}
 
 
 @app.get("/api/v1/insurance/dashboard", tags=["insurance"])
@@ -3266,22 +3507,30 @@ def import_transactions(
             raise HTTPException(status_code=422, detail="Transaction type must be credit or debit")
 
         category = _resolve_transaction_category(record.category, record.description)
-        imported.append(
-            {
-                "date": record.date,
-                "description": record.description,
-                "amount": record.amount,
-                "type": record.type,
-                "category": category,
-                "owner_email": user["email"],
-            }
-        )
+        import_record = {
+            "id": str(len(_TRANSACTIONS) + 1),
+            "date": record.date,
+            "description": record.description,
+            "amount": record.amount,
+            "type": record.type,
+            "category": category,
+            "owner_email": user["email"],
+        }
+        imported.append(import_record)
     _TRANSACTIONS.extend(imported)
     return {
         "source_name": payload.source_name,
         "record_count": len(imported),
         "owner_email": user["email"],
+        "transactions": imported,
     }
+
+
+def _get_transaction_for_user(transaction_id: str, user_email: str) -> dict[str, Any]:
+    for transaction in _TRANSACTIONS:
+        if transaction["id"] == transaction_id and transaction["owner_email"] == user_email:
+            return transaction
+    raise HTTPException(status_code=404, detail="Transaction not found")
 
 
 def _categorize_transaction(description: str) -> str:
@@ -3355,3 +3604,32 @@ def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) ->
 def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
     return {"transactions": owner_transactions}
+
+
+@app.put("/api/v1/transactions/{transaction_id}", tags=["transactions"])
+def update_transaction(
+    transaction_id: str,
+    payload: TransactionUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    transaction = _get_transaction_for_user(transaction_id, user["email"])
+
+    if payload.date is not None:
+        transaction["date"] = payload.date
+    if payload.description is not None:
+        transaction["description"] = payload.description
+    if payload.amount is not None:
+        transaction["amount"] = payload.amount
+    if payload.type is not None:
+        transaction["type"] = payload.type
+    if payload.category is not None:
+        transaction["category"] = payload.category
+
+    return transaction
+
+
+@app.delete("/api/v1/transactions/{transaction_id}", tags=["transactions"])
+def delete_transaction(transaction_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, str]:
+    transaction = _get_transaction_for_user(transaction_id, user["email"])
+    _TRANSACTIONS.remove(transaction)
+    return {"deleted_id": transaction_id, "owner_email": user["email"]}
