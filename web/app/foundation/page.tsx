@@ -1,53 +1,111 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useMemo, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
-const foundationStats = [
+type FoundationControl = {
+  id: string;
+  name: string;
+  status: "Stable" | "Enabled" | "Controlled" | "Tracked";
+  owner: string;
+  detail: string;
+};
+
+const initialControls: FoundationControl[] = [
   {
-    title: "Runtime baseline",
-    value: "Ready",
-    detail:
-      "The local stack is documented and aligned to the approved Python and Node runtime constraints.",
+    id: "FND-101",
+    name: "Runtime contracts",
+    status: "Stable",
+    owner: "Platform",
+    detail: "Python and Node toolchains are pinned and validated before deployment.",
   },
   {
-    title: "Delivery controls",
-    value: "Active",
-    detail:
-      "Build, lint, and validation paths are part of the working delivery process.",
+    id: "FND-204",
+    name: "CI validation",
+    status: "Enabled",
+    owner: "Release",
+    detail: "Core checks run before moving work across the delivery pipeline.",
   },
   {
-    title: "Contract quality",
-    value: "Versioned",
-    detail:
-      "API behavior and configuration rules remain explicit and testable across stages.",
-  },
-  {
-    title: "Security baseline",
-    value: "Approved",
-    detail:
-      "Core policy guardrails and redaction patterns are in place before deeper feature work proceeds.",
+    id: "FND-318",
+    name: "Secrets handling",
+    status: "Controlled",
+    owner: "Security",
+    detail: "Sensitive values remain local and out of repo or runtime logs.",
   },
 ];
 
-const actions = [
-  "Keep the local runtime documentation synchronized with the actual CI and workstation setup.",
-  "Validate every new stage against the existing contract, configuration, and security guardrails.",
-  "Treat environment drift as a release risk until the pinned toolchain is formally installed.",
-  "Record every approval gate and evidence item before moving from one feature stage to the next.",
-];
-
-const controls = [
-  { name: "Runtime contracts", status: "Stable" },
-  { name: "CI validation", status: "Enabled" },
-  { name: "Secrets handling", status: "Controlled" },
-  { name: "Migrations", status: "Documented" },
-  { name: "Operational readiness", status: "Tracked" },
-];
+const defaultForm = {
+  name: "",
+  owner: "",
+  status: "Stable" as FoundationControl["status"],
+  detail: "",
+};
 
 export default function FoundationPage() {
   const { isAdmin, logout } = useRavAuth();
+  const [controls, setControls] = useState<FoundationControl[]>(initialControls);
+  const [form, setForm] = useState(defaultForm);
+  const [error, setError] = useState("");
+
+  const foundationStats = useMemo(() => {
+    const stableCount = controls.filter((item) => item.status === "Stable").length;
+    const enabledCount = controls.filter((item) => item.status === "Enabled").length;
+
+    return [
+      {
+        title: "Runtime baseline",
+        value: stableCount > 0 ? "Ready" : "Setup",
+        detail: "The local stack is documented and aligned to the approved Python and Node runtime constraints.",
+      },
+      {
+        title: "Delivery controls",
+        value: enabledCount > 0 ? "Active" : "Paused",
+        detail: "Build, lint, and validation paths are part of the working delivery process.",
+      },
+      {
+        title: "Contract quality",
+        value: "Versioned",
+        detail: "API behavior and configuration rules remain explicit and testable across stages.",
+      },
+      {
+        title: "Security baseline",
+        value: "Approved",
+        detail: "Core policy guardrails and redaction patterns are in place before deeper feature work proceeds.",
+      },
+    ];
+  }, [controls]);
+
+  const actions = [
+    "Keep the local runtime documentation synchronized with the actual CI and workstation setup.",
+    "Validate every new stage against the existing contract, configuration, and security guardrails.",
+    "Treat environment drift as a release risk until the pinned toolchain is formally installed.",
+    "Record every approval gate and evidence item before moving from one feature stage to the next.",
+  ];
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const name = form.name.trim();
+    if (!name) {
+      setError("Control name is required.");
+      return;
+    }
+
+    const nextControl: FoundationControl = {
+      id: `FND-${Math.floor(Date.now() / 1000) % 100000}`,
+      name,
+      status: form.status,
+      owner: form.owner.trim() || "Platform",
+      detail: form.detail.trim() || "No additional notes recorded.",
+    };
+
+    setControls((current) => [nextControl, ...current]);
+    setForm(defaultForm);
+    setError("");
+  };
 
   return (
     <RavProtectedLayout>
@@ -100,7 +158,7 @@ export default function FoundationPage() {
           <div className="summary-strip" aria-label="Foundation summary">
             <div>
               <span className="meta-label">State</span>
-              <strong>Ready</strong>
+              <strong>{controls.some((item) => item.status === "Stable") ? "Ready" : "Setup"}</strong>
             </div>
             <div>
               <span className="meta-label">Runtime</span>
@@ -151,7 +209,7 @@ export default function FoundationPage() {
           </aside>
         </section>
 
-        <section className="panel">
+        <section className="panel bottom-grid">
           <div className="section-head">
             <div>
               <p className="eyebrow">CONTROLS</p>
@@ -159,16 +217,79 @@ export default function FoundationPage() {
             </div>
           </div>
 
-          <div className="goal-list">
+          <form onSubmit={handleSubmit} className="goal-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Control name</span>
+                <input
+                  value={form.name}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, name: event.target.value }))
+                  }
+                  placeholder="e.g. Runtime contracts"
+                />
+              </label>
+
+              <label className="field">
+                <span>Owner</span>
+                <input
+                  value={form.owner}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, owner: event.target.value }))
+                  }
+                  placeholder="e.g. Platform"
+                />
+              </label>
+
+              <label className="field">
+                <span>Status</span>
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      status: event.target.value as FoundationControl["status"],
+                    }))
+                  }
+                >
+                  <option value="Stable">Stable</option>
+                  <option value="Enabled">Enabled</option>
+                  <option value="Controlled">Controlled</option>
+                  <option value="Tracked">Tracked</option>
+                </select>
+              </label>
+
+              <label className="field field-wide">
+                <span>Detail</span>
+                <textarea
+                  value={form.detail}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, detail: event.target.value }))
+                  }
+                  placeholder="Add context around runtime, release, or operational check results."
+                />
+              </label>
+            </div>
+
+            {error ? <p className="form-error">{error}</p> : null}
+
+            <div className="button-row">
+              <button type="submit" className="primary-btn">
+                Save control
+              </button>
+            </div>
+          </form>
+
+          <div className="goal-list compact-list">
             {controls.map((control) => (
-              <div className="goal-item" key={control.name}>
+              <div className="goal-item" key={control.id}>
                 <div className="goal-topline">
                   <strong>{control.name}</strong>
                   <span className="pill success">{control.status}</span>
                 </div>
                 <div className="goal-details">
-                  <span>Control state</span>
-                  <span>{control.status}</span>
+                  <span>{control.owner}</span>
+                  <span>{control.detail}</span>
                 </div>
               </div>
             ))}

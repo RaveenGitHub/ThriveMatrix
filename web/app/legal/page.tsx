@@ -1,44 +1,130 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useMemo, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
-const legalStats = [
+type LegalRecord = {
+  id: string;
+  title: string;
+  category: string;
+  owner: string;
+  status: "Prepared" | "Review" | "Needs attention";
+  notes: string;
+  updated: string;
+};
+
+const initialLegalRecords: LegalRecord[] = [
   {
-    title: "Document coverage",
-    value: "86%",
-    detail: "The legal records set is mostly current and easy to retrieve.",
+    id: "LEG-101",
+    title: "Will and nominee update",
+    category: "Estate",
+    owner: "Uma Rajagopal",
+    status: "Review",
+    notes: "Witness confirmation still pending before submission.",
+    updated: "2 days ago",
   },
   {
-    title: "Nominee clarity",
-    value: "Strong",
-    detail:
-      "Beneficiary and nominee information remains sufficiently clear for review.",
+    id: "LEG-204",
+    title: "Health power of attorney",
+    category: "Planning",
+    owner: "Family desk",
+    status: "Prepared",
+    notes: "Current and ready for emergency access if needed.",
+    updated: "6 days ago",
   },
   {
-    title: "Emergency access",
-    value: "Ready",
-    detail:
-      "Primary and backup contacts are identified for sensitive document access.",
-  },
-  {
-    title: "Retention health",
-    value: "Managed",
-    detail:
-      "Storage and review cadence remain aligned with the current control model.",
+    id: "LEG-318",
+    title: "Insurance nomination summary",
+    category: "Coverage",
+    owner: "Wealth desk",
+    status: "Needs attention",
+    notes: "Nominee and designation fields need the latest confirmation.",
+    updated: "1 week ago",
   },
 ];
 
-const actions = [
-  "Review current legal records and align them with the latest family or nominee changes.",
-  "Confirm legal access permissions for trusted contacts and backup decision-makers.",
-  "Check whether any policy or estate documents need a second review before renewal cycles.",
-  "Set a recurring legal document review cadence to keep sensitive records current.",
-];
+const defaultForm = {
+  title: "",
+  category: "Estate",
+  owner: "",
+  status: "Prepared" as LegalRecord["status"],
+  notes: "",
+};
 
 export default function LegalPage() {
   const { isAdmin, logout } = useRavAuth();
+  const [records, setRecords] = useState<LegalRecord[]>(initialLegalRecords);
+  const [form, setForm] = useState(defaultForm);
+  const [error, setError] = useState("");
+
+  const legalStats = useMemo(() => {
+    const prepared = records.filter(
+      (item) => item.status === "Prepared",
+    ).length;
+    const review = records.filter((item) => item.status === "Review").length;
+    const needsAttention = records.filter(
+      (item) => item.status === "Needs attention",
+    ).length;
+
+    return [
+      {
+        title: "Document coverage",
+        value: `${Math.max(80, 70 + prepared * 6 - needsAttention * 4)}%`,
+        detail: "The legal records set is mostly current and easy to retrieve.",
+      },
+      {
+        title: "Nominee clarity",
+        value: review > 0 ? "Monitor" : "Strong",
+        detail:
+          "Beneficiary and nominee information remains sufficiently clear for review.",
+      },
+      {
+        title: "Emergency access",
+        value: prepared > 0 ? "Ready" : "Setup",
+        detail:
+          "Primary and backup contacts are identified for sensitive document access.",
+      },
+      {
+        title: "Retention health",
+        value: needsAttention > 0 ? "Attention" : "Managed",
+        detail:
+          "Storage and review cadence remain aligned with the current control model.",
+      },
+    ];
+  }, [records]);
+
+  const actions = [
+    "Review current legal records and align them with the latest family or nominee changes.",
+    "Confirm legal access permissions for trusted contacts and backup decision-makers.",
+    "Check whether any policy or estate documents need a second review before renewal cycles.",
+    "Set a recurring legal document review cadence to keep sensitive records current.",
+  ];
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const title = form.title.trim();
+    if (!title) {
+      setError("Legal record title is required.");
+      return;
+    }
+
+    const nextRecord: LegalRecord = {
+      id: `LEG-${Math.floor(Date.now() / 1000) % 100000}`,
+      title,
+      category: form.category,
+      owner: form.owner.trim() || "Personal vault",
+      status: form.status,
+      notes: form.notes.trim() || "No additional notes recorded.",
+      updated: "just now",
+    };
+
+    setRecords((current) => [nextRecord, ...current]);
+    setForm(defaultForm);
+    setError("");
+  };
 
   return (
     <RavProtectedLayout>
@@ -91,15 +177,23 @@ export default function LegalPage() {
           <div className="summary-strip" aria-label="Legal summary">
             <div>
               <span className="meta-label">Status</span>
-              <strong>Prepared</strong>
+              <strong>
+                {records.some((item) => item.status === "Needs attention")
+                  ? "Monitor"
+                  : "Prepared"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Access</span>
-              <strong>Controlled</strong>
+              <strong>
+                {records.some((item) => item.status === "Prepared")
+                  ? "Controlled"
+                  : "Setup"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Priority</span>
-              <strong>High</strong>
+              <strong>{records.length > 2 ? "High" : "Normal"}</strong>
             </div>
           </div>
         </section>
@@ -113,12 +207,125 @@ export default function LegalPage() {
               </div>
             </div>
 
-            <div className="insight-grid three-up">
+            <form onSubmit={handleSubmit} className="goal-form">
+              <div className="field-grid">
+                <label className="field">
+                  <span>Record title</span>
+                  <input
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Living will update"
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Category</span>
+                  <select
+                    value={form.category}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        category: event.target.value,
+                      }))
+                    }
+                  >
+                    <option>Estate</option>
+                    <option>Planning</option>
+                    <option>Coverage</option>
+                    <option>Nomination</option>
+                    <option>Compliance</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>Owner</span>
+                  <input
+                    value={form.owner}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        owner: event.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Family desk"
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Status</span>
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        status: event.target.value as LegalRecord["status"],
+                      }))
+                    }
+                  >
+                    <option value="Prepared">Prepared</option>
+                    <option value="Review">Review</option>
+                    <option value="Needs attention">Needs attention</option>
+                  </select>
+                </label>
+
+                <label className="field field-wide">
+                  <span>Notes</span>
+                  <textarea
+                    value={form.notes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
+                    }
+                    placeholder="Add important legal notes, validation requirements, or review details."
+                  />
+                </label>
+              </div>
+
+              {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
+
+              <button type="submit" className="primary-btn">
+                Save legal record
+              </button>
+            </form>
+
+            <div className="insight-grid three-up" style={{ marginTop: 24 }}>
               {legalStats.map((item) => (
                 <div className="insight-box" key={item.title}>
                   <span>{item.title}</span>
                   <strong>{item.value}</strong>
                   <small>{item.detail}</small>
+                </div>
+              ))}
+            </div>
+
+            <div className="goal-list compact-list" style={{ marginTop: 24 }}>
+              {records.map((record) => (
+                <div className="goal-item" key={record.id}>
+                  <div className="goal-topline">
+                    <strong>{record.title}</strong>
+                    <span
+                      className={`pill ${
+                        record.status === "Prepared" ? "success" : "neutral"
+                      }`}
+                    >
+                      {record.status}
+                    </span>
+                  </div>
+                  <div className="goal-details">
+                    <span>{record.category}</span>
+                    <span>{record.owner}</span>
+                  </div>
+                  <div className="goal-details" style={{ marginTop: 0 }}>
+                    <span>{record.notes}</span>
+                    <span>{record.updated}</span>
+                  </div>
                 </div>
               ))}
             </div>

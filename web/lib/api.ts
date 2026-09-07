@@ -52,3 +52,5 @@ export async function ravApiFetch<T>(
 }
 
 export const apiFetch = ravApiFetch;
+
+export { ravApiFetch as apiRequest };

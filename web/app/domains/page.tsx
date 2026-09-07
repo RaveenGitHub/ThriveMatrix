@@ -52,9 +52,9 @@ export default function DomainsPage() {
         relationshipsResponse,
         readinessResponse,
       ] = await Promise.all([
-        apiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
-        apiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
-        apiFetch<{
+        ravApiFetch<DomainSummaryResponse>("/api/v1/domains/summary"),
+        ravApiFetch<{ records: DomainRecord[] }>("/api/v1/health/records"),
+        ravApiFetch<{
           contacts: Array<{
             id: string;
             name: string;
@@ -63,8 +63,10 @@ export default function DomainsPage() {
             email: string;
           }>;
         }>("/api/v1/legal/emergency-contacts"),
-        apiFetch<{ records: DomainRecord[] }>("/api/v1/relationships/records"),
-        apiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
+        ravApiFetch<{ records: DomainRecord[] }>(
+          "/api/v1/relationships/records",
+        ),
+        ravApiFetch<{ items: DomainRecord[] }>("/api/v1/readiness/items"),
       ]);
 
       setSummary(summaryResponse);

@@ -180,7 +180,8 @@ def get_database_url() -> str:
             database_name = parsed.database
             if database_name and database_name not in {":memory:", "file::memory:?cache=shared&uri=true"} and not database_name.startswith("file:"):
                 resolved_path = _resolve_sqlite_path(database_name)
-                normalized_url = f"sqlite:///{resolved_path.replace('\\', '/')}"
+                normalized_path = resolved_path.replace("\\", "/")
+                normalized_url = f"sqlite:///{normalized_path}"
         return normalized_url
 
     data_dir = Path(__file__).resolve().parents[1] / "data"

@@ -1,40 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useMemo, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
-const securityScores = [
-  {
-    label: "Authentication",
-    value: "98%",
-    note: "Token refresh and expiry controls are active.",
-  },
-  {
-    label: "Data isolation",
-    value: "96%",
-    note: "Owner-scoped access is enforced on all records.",
-  },
-  {
-    label: "Audit logs",
-    value: "94%",
-    note: "Sensitive writes remain traceable and reviewable.",
-  },
-  {
-    label: "Redaction",
-    value: "99%",
-    note: "Private fields remain masked in logs and exports.",
-  },
-];
+type SecurityEvent = {
+  id: string;
+  title: string;
+  status: "Approved" | "Review" | "Healthy";
+  detail: string;
+};
 
-const controls = [
-  "Access tokens are short-lived and revocable.",
-  "Cross-user mutations are blocked by ownership checks.",
-  "Audit events capture actor, timestamp, target, and reason.",
-  "Sensitive values remain masked in telemetry and exports.",
-];
-
-const events = [
+const initialEvents: SecurityEvent[] = [
   {
     id: "SEC-204",
     title: "Password reset review",
@@ -55,8 +33,78 @@ const events = [
   },
 ];
 
+const defaultForm = {
+  title: "",
+  status: "Healthy" as SecurityEvent["status"],
+  detail: "",
+};
+
 export default function SecurityPage() {
   const { isAdmin, logout } = useRavAuth();
+  const [events, setEvents] = useState<SecurityEvent[]>(initialEvents);
+  const [form, setForm] = useState(defaultForm);
+  const [error, setError] = useState("");
+
+  const securityScores = useMemo(() => {
+    const reviewCount = events.filter(
+      (item) => item.status === "Review",
+    ).length;
+    const healthyCount = events.filter(
+      (item) => item.status === "Healthy",
+    ).length;
+
+    return [
+      {
+        label: "Authentication",
+        value: `${98 - reviewCount}%`,
+        note: "Token refresh and expiry controls are active.",
+      },
+      {
+        label: "Data isolation",
+        value: `${96 - reviewCount}%`,
+        note: "Owner-scoped access is enforced on all records.",
+      },
+      {
+        label: "Audit logs",
+        value: `${94 + healthyCount}%`,
+        note: "Sensitive writes remain traceable and reviewable.",
+      },
+      {
+        label: "Redaction",
+        value: "99%",
+        note: "Private fields remain masked in logs and exports.",
+      },
+    ];
+  }, [events]);
+
+  const controls = [
+    "Access tokens are short-lived and revocable.",
+    "Cross-user mutations are blocked by ownership checks.",
+    "Audit events capture actor, timestamp, target, and reason.",
+    "Sensitive values remain masked in telemetry and exports.",
+  ];
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const title = form.title.trim();
+    if (!title) {
+      setError("Audit event title is required.");
+      return;
+    }
+
+    const nextEvent: SecurityEvent = {
+      id: `SEC-${Math.floor(Date.now() / 1000) % 100000}`,
+      title,
+      status: form.status,
+      detail:
+        form.detail.trim() || "Review details recorded for audit follow-up.",
+    };
+
+    setEvents((current) => [nextEvent, ...current]);
+    setForm(defaultForm);
+    setError("");
+  };
 
   return (
     <RavProtectedLayout>
@@ -108,11 +156,19 @@ export default function SecurityPage() {
           <div className="summary-strip" aria-label="Security summary">
             <div>
               <span className="meta-label">Risk posture</span>
-              <strong>Controlled</strong>
+              <strong>
+                {events.some((item) => item.status === "Review")
+                  ? "Monitor"
+                  : "Controlled"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Audit health</span>
-              <strong>Stable</strong>
+              <strong>
+                {events.some((item) => item.status === "Healthy")
+                  ? "Stable"
+                  : "Review"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Policy mode</span>
@@ -166,6 +222,63 @@ export default function SecurityPage() {
               <h3>Recent review events</h3>
             </div>
           </div>
+
+          <form onSubmit={handleSubmit} className="goal-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Event title</span>
+                <input
+                  value={form.title}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Password reset review"
+                />
+              </label>
+
+              <label className="field">
+                <span>Status</span>
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      status: event.target.value as SecurityEvent["status"],
+                    }))
+                  }
+                >
+                  <option value="Approved">Approved</option>
+                  <option value="Review">Review</option>
+                  <option value="Healthy">Healthy</option>
+                </select>
+              </label>
+
+              <label className="field field-wide">
+                <span>Detail</span>
+                <textarea
+                  value={form.detail}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      detail: event.target.value,
+                    }))
+                  }
+                  placeholder="Add context around follow-up, review findings, or audit note."
+                />
+              </label>
+            </div>
+
+            {error ? <p className="form-error">{error}</p> : null}
+
+            <div className="button-row">
+              <button type="submit" className="primary-btn">
+                Save event
+              </button>
+            </div>
+          </form>
 
           <div className="goal-list compact-list">
             {events.map((event) => (

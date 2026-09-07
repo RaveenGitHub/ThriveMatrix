@@ -200,6 +200,7 @@ export function useRavAuth() {
 }
 
 export const useAuth = useRavAuth;
+export const apiFetch = ravApiFetch;
 export type SessionStatus = RavSessionStatus;
 export type AuthContextValue = RavAuthContextValue;
 export const AuthContext = RavAuthContext;

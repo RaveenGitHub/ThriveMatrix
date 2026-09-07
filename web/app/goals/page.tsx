@@ -86,7 +86,7 @@ export default function GoalsPage() {
       const progressEntries = await Promise.all(
         nextGoals.map(async (goal) => {
           try {
-            const progress = await apiFetch<GoalProgress>(
+            const progress = await ravApiFetch<GoalProgress>(
               `/api/v1/goals/${goal.id}/progress`,
             );
             return [goal.id, progress] as const;
@@ -116,63 +116,20 @@ export default function GoalsPage() {
   useEffect(() => {
     let active = true;
 
-    const loadGoals = async () => {
+    const runLoad = async () => {
       try {
         setLoading(true);
-        const payload = await ravApiFetch<{ goals: GoalRecord[] }>(
-          "/api/v1/goals",
-        );
-        const nextGoals = payload.goals ?? [];
+        await loadGoals();
+      } catch {
+        // no-op: loadGoals already updates error state
+      }
 
-        if (!active) {
-          return;
-        }
-
-        setGoals(nextGoals);
-
-        const progressEntries = await Promise.all(
-          nextGoals.map(async (goal) => {
-            try {
-              const progress = await ravApiFetch<GoalProgress>(
-                `/api/v1/goals/${goal.id}/progress`,
-              );
-              return [goal.id, progress] as const;
-            } catch {
-              return [goal.id, null] as const;
-            }
-          }),
-        );
-
-        if (!active) {
-          return;
-        }
-
-        const nextProgress: Record<string, GoalProgress> = {};
-        for (const [goalId, goalProgress] of progressEntries) {
-          if (goalProgress) {
-            nextProgress[goalId] = goalProgress;
-          }
-        }
-        setProgressByGoal(nextProgress);
-        setError("");
-      } catch (loadError) {
-        if (!active) {
-          return;
-        }
-
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load goals",
-        );
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+      if (!active) {
+        return;
       }
     };
 
-    void loadGoals();
+    void runLoad();
 
     return () => {
       active = false;
@@ -204,12 +161,25 @@ export default function GoalsPage() {
 
     const name = form.name.trim();
     const targetAmount = Number(form.target_amount);
+    const formattedDate = form.target_date?.trim();
+    const isValidDate =
+      !!formattedDate && !Number.isNaN(Date.parse(formattedDate));
 
-    if (!name || Number.isNaN(targetAmount) || targetAmount <= 0) {
+    if (
+      !name ||
+      !form.category ||
+      !isValidDate ||
+      Number.isNaN(targetAmount) ||
+      targetAmount <= 0
+    ) {
+      setError(
+        "Please enter a valid goal name, category, target amount, and target date before saving.",
+      );
       return;
     }
 
     try {
+      setError("");
       await ravApiFetch<GoalRecord>("/api/v1/goals", {
         method: "POST",
         body: JSON.stringify({
@@ -217,7 +187,7 @@ export default function GoalsPage() {
           category: form.category,
           target_amount: targetAmount,
           target_currency: "INR",
-          target_date: form.target_date,
+          target_date: formattedDate,
           status: "active",
           priority: "medium",
         }),
