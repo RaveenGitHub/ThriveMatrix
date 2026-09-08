@@ -135,6 +135,82 @@ Status:
 | P2       | Finalize the approved monogram or brand asset.                                              | Design, Brand                       | Pending | Pure design signoff; no technical blocker.                                                    |
 | P3       | Keep the implementation baseline under review until each governance approval is complete.   | Project lead                        | Ongoing | No code defect should be opened for pending governance items unless they change the contract. |
 
+## Draft release evidence pack
+
+The engineering baseline is complete. The next operational step is to package the approval evidence for each remaining governance decision so legal, privacy, security, product, and design signoff can proceed without re-opening implementation work.
+
+### 1. Statement retention and deletion policy packet
+
+Required evidence:
+
+- final retention schedule for financial, personal, and health records
+- account deletion workflow and exception handling steps
+- user notification language for retention and deletion events
+- audit trail template for exception approvals and deletions
+
+Owner checklist:
+
+- Legal: approve final retention window and notice language
+- Privacy: confirm consent scope and deletion rights
+- Security: confirm control coverage and audit handling
+
+Status reminder:
+
+- do not treat this as an engineering fix; it is a product and compliance release gate only
+
+### 2. Market pricing vendor and licensing packet
+
+Required evidence:
+
+- approved vendor or data-source contract
+- licensing review summary and compliance status
+- decision on live market pricing scope for MVP versus later release
+- fallback behavior when vendor data is unavailable or delayed
+
+Owner checklist:
+
+- Product: define in-scope features and release boundary
+- Finance: validate use-case and measurable business impact
+- Legal: approve contract terms and data rights
+
+### 3. Regulated activity boundary packet
+
+Required evidence:
+
+- regulated activity matrix and operational boundary
+- user-facing disclosure or disclaimer language
+- role restrictions and review controls for specific financial workflows
+- escalation path for any feature outside the approved boundary
+
+Owner checklist:
+
+- Product: define feature boundary and customer messaging
+- Finance: validate permissible workflows and financial handling
+- Legal: confirm disclosure and compliance wording
+- Compliance: approve final boundary for launch
+
+### 4. Brand monogram approval packet
+
+Required evidence:
+
+- final approved monogram or brand token asset
+- fallback usage guidance for conflicting source material
+- approved color and typography pairing if applicable
+
+Owner checklist:
+
+- Design: finalize approved visual asset
+- Brand: sign off the final release usage choice
+
+### Evidence intake template
+
+| Decision item                  | Evidence file | Owner                                  | Approval date | Status  | Notes                                   |
+| ------------------------------ | ------------- | -------------------------------------- | ------------- | ------- | --------------------------------------- |
+| Retention and deletion policy  | Pending       | Legal / Privacy / Security             | Pending       | Pending | Final policy text and deletion workflow |
+| Pricing provider and licensing | Pending       | Product / Finance / Legal              | Pending       | Pending | Vendor approval and license review      |
+| Regulated activity boundary    | Pending       | Product / Finance / Legal / Compliance | Pending       | Pending | Compliance matrix and disclosure text   |
+| Brand monogram                 | Pending       | Design / Brand                         | Pending       | Pending | Final visual asset and usage guidance   |
+
 ## Signoff note
 
 These items remain governance actions rather than implementation defects. The codebase can continue to be treated as a working MVP baseline while these approvals are pending, provided the approval items do not alter the implemented feature contract.
