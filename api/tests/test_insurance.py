@@ -235,3 +235,57 @@ def test_insurance_dashboard_and_gap_endpoints_are_available() -> None:
     gap_body = gaps.json()
     assert len(gap_body["gaps"]) >= 1
     assert any(item["type"] == "coverage_gap" for item in gap_body["gaps"]) 
+
+
+def test_insurance_policy_update_and_delete_endpoints() -> None:
+    email = f"insurance-update-delete-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    create_response = client.post(
+        "/api/v1/insurance/policies",
+        json={
+            "name": "Family Shield",
+            "policy_type": "health",
+            "provider": "Care Health",
+            "premium_amount": 5000,
+            "coverage_amount": 1000000,
+            "coverage_goal": 2000000,
+            "premium_frequency": "yearly",
+            "start_date": "2026-01-01",
+            "end_date": "2027-01-01",
+            "status": "active",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    policy_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/api/v1/insurance/policies/{policy_id}",
+        json={
+            "name": "Family Shield Plus",
+            "coverage_amount": 1500000,
+            "coverage_goal": 2500000,
+            "status": "active",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "Family Shield Plus"
+    assert updated["coverage_amount"] == 1500000
+    assert updated["coverage_gap"] == 1000000
+
+    delete_response = client.delete(
+        f"/api/v1/insurance/policies/{policy_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_id"] == policy_id
+
+    list_response = client.get(
+        "/api/v1/insurance/policies",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_response.status_code == 200
+    assert all(item["id"] != policy_id for item in list_response.json()["policies"])
