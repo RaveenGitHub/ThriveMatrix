@@ -67,6 +67,22 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
 
     closeRequestInFlight.current = true;
     try {
+      try {
+        if (
+          typeof navigator !== "undefined" &&
+          typeof navigator.sendBeacon === "function"
+        ) {
+          navigator.sendBeacon(
+            "/api/v1/auth/session/terminate",
+            new Blob([], {
+              type: "application/json",
+            }),
+          );
+        }
+      } catch {
+        // Some browser contexts block sendBeacon; fall through to the standard API call below.
+      }
+
       await ravApiFetch("/api/v1/auth/session/terminate", {
         method: "POST",
         cache: "no-store",
@@ -75,6 +91,9 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
       // Intentionally fail closed without surfacing an error to the browser session close flow.
     } finally {
       setUser(null);
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+      }
       closeRequestInFlight.current = false;
     }
   }, []);
@@ -127,7 +146,12 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const publicPaths = new Set(["/", "/login"]);
+    const publicPaths = new Set([
+      "/",
+      "/login",
+      "/register",
+      "/forgot-password",
+    ]);
 
     if (!isReady) {
       return;
@@ -145,15 +169,48 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleClose = () => {
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.sendBeacon === "function"
+      ) {
+        navigator.sendBeacon(
+          "/api/v1/auth/session/terminate",
+          new Blob([], {
+            type: "application/json",
+          }),
+        );
+      }
       void terminateOnClose();
     };
 
     const handleBeforeUnload = () => {
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.sendBeacon === "function"
+      ) {
+        navigator.sendBeacon(
+          "/api/v1/auth/session/terminate",
+          new Blob([], {
+            type: "application/json",
+          }),
+        );
+      }
       void terminateOnClose();
     };
 
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") {
+        if (
+          typeof navigator !== "undefined" &&
+          typeof navigator.sendBeacon === "function"
+        ) {
+          navigator.sendBeacon(
+            "/api/v1/auth/session/terminate",
+            new Blob([], {
+              type: "application/json",
+            }),
+          );
+        }
         void terminateOnClose();
       }
     };

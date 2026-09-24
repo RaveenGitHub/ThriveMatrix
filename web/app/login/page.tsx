@@ -9,7 +9,7 @@ import { useRavAuth } from "../auth-context";
 export default function LoginPage() {
   const router = useRouter();
   const { refreshSession } = useRavAuth();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
@@ -17,19 +17,25 @@ export default function LoginPage() {
     event.preventDefault();
     setError("");
 
+    const payload = {
+      email: identifier.includes("@") ? identifier : undefined,
+      username: identifier.includes("@") ? undefined : identifier,
+      password,
+    };
+
     try {
       await ravApiFetch<{ access_token: string; refresh_token: string }>(
         "/api/v1/auth/login",
         {
           method: "POST",
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify(payload),
         },
       );
 
       await refreshSession();
       router.replace("/home");
     } catch {
-      setError("Invalid email or password.");
+      setError("Invalid email/username or password.");
     }
   }
 
@@ -40,14 +46,16 @@ export default function LoginPage() {
         <h2>Sign in</h2>
         <form onSubmit={handleSubmit} className="auth-form overflow-safe">
           <label className="overflow-safe">
-            <span>Email</span>
+            <span>Email or username</span>
             <input
               className="safe-input"
-              type="email"
-              value={email}
+              type="text"
+              value={identifier}
               maxLength={254}
-              onChange={(event) => setEmail(event.target.value.slice(0, 254))}
-              placeholder="you@example.com"
+              onChange={(event) =>
+                setIdentifier(event.target.value.slice(0, 254))
+              }
+              placeholder="you@example.com or username"
               required
             />
           </label>

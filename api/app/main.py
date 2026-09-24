@@ -1533,21 +1533,20 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
 
     user_email = email or f"{phone}@phone.local"
     salt, password_hash = _hash_password(payload.password)
-    verification_required = payload.require_verification
+    verification_required = True
     otp_code = None
     otp_expires_at = None
     activation_token = None
     activation_expires_at = None
 
-    if verification_required:
-        otp_code = _generate_otp()
-        otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat()
-        if email:
-            activation_token = _generate_activation_token()
-            activation_expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
+    otp_code = _generate_otp()
+    otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat()
+    if email:
+        activation_token = _generate_activation_token()
+        activation_expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
 
-    user_status = "pending_verification" if verification_required else "active"
-    user_verified = not verification_required
+    user_status = "pending_verification"
+    user_verified = False
 
     user_record = {
         "email": user_email,
@@ -1698,8 +1697,6 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
     return {
         "status": "ok",
         "message": "Password reset request accepted.",
-        "token": token,
-        "reset_url": reset_link,
     }
 
 

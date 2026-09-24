@@ -2,7 +2,7 @@
 
 ## Status
 
-Status: Implemented and validated. Authentication, verified-user gating, session handling, and protected navigation are in place for the current app baseline; remaining open items are governance and release approvals, not auth implementation gaps.
+Status: Partially implemented and gated for release sign-off. The auth baseline now enforces verification by default, allows email-or-username login, hides sensitive reset tokens from the client response, and protects public/internal route separation. Remaining release items are operational hardening and browser validation rather than core auth functionality.
 
 ## Overview
 
@@ -15,6 +15,17 @@ This module allows users to create an account, verify identity, and access the a
 - secure login and session handling
 - rate limiting and abuse protection
 - minimal personal-data exposure
+
+## Release readiness checklist
+
+- [x] Registration requires verification by default before a user can access the app
+- [x] Login accepts either email or username as the identifier
+- [x] Protected route checks redirect unauthenticated users to the login flow
+- [x] Public auth screens remain accessible without authentication
+- [x] Reset-password API response does not expose raw reset tokens to browsers
+- [ ] Browser close / tab close session invalidation is validated across the target browsers
+- [ ] Email/SMS delivery provider integration is validated in a production-like environment
+- [ ] Final release sign-off is recorded for the auth module
 
 ## Functional requirements
 
