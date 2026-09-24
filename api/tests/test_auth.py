@@ -12,6 +12,7 @@ from app.main import (
     _SESSION_TOKENS,
     _USERS,
     _cleanup_expired_sessions,
+    _ensure_local_bootstrap_admin,
     _hash_token_value,
     _utc_now,
     app,
@@ -19,6 +20,19 @@ from app.main import (
 )
 
 client = TestClient(app)
+
+
+def test_local_bootstrap_admin_is_created() -> None:
+    email = "admin@ravthijo.com"
+    _USERS.pop(email, None)
+
+    _ensure_local_bootstrap_admin()
+
+    user = _USERS.get(email)
+    assert user is not None
+    assert user["role"] == "admin"
+    assert user["status"] == "active"
+    assert user["verified"] is True
 
 
 def test_user_can_register_and_login() -> None:

@@ -126,6 +126,7 @@ def startup_db_checks() -> None:
     ensure_migration_bootstrap_tables()
     ensure_investment_category_seed()
     _hydrate_users_from_database()
+    _ensure_local_bootstrap_admin()
 
 
 def _hydrate_users_from_database() -> None:
@@ -1082,6 +1083,75 @@ def _coerce_datetime(value: Any) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _ensure_local_bootstrap_admin() -> None:
+    if _runtime_environment_name() not in {"local", "development", "dev", "test"}:
+        return
+
+    email = "admin@ravthijo.com"
+    password = "AdminRavthijo01!"
+    salt, password_hash = _hash_password(password)
+    normalized_email = _normalize_email(email) or email
+
+    existing_user = _USERS.get(normalized_email) or _find_user_by_identifier(normalized_email)
+    user_record: dict[str, Any]
+    if existing_user is None:
+        user_record = {
+            "email": normalized_email,
+            "phone": None,
+            "username": "admin",
+            "role": "admin",
+            "status": "active",
+            "verified": True,
+            "password_hash": password_hash,
+            "password_salt": salt,
+            "preferred_currency": "INR",
+            "otp_code": None,
+            "otp_expires_at": None,
+            "activation_token": None,
+            "activation_expires_at": None,
+            "otp_attempts": 0,
+            "failed_login_attempts": 0,
+        }
+        auth_service.user_repository.create_user(user_record)
+        _USERS[normalized_email] = user_record
+        return
+
+    user_record = dict(existing_user)
+    user_record["email"] = normalized_email
+    user_record["username"] = user_record.get("username") or "admin"
+    user_record["role"] = "admin"
+    user_record["status"] = "active"
+    user_record["verified"] = True
+    user_record["password_hash"] = password_hash
+    user_record["password_salt"] = salt
+    user_record["preferred_currency"] = user_record.get("preferred_currency") or "INR"
+    user_record["otp_code"] = None
+    user_record["otp_expires_at"] = None
+    user_record["activation_token"] = None
+    user_record["activation_expires_at"] = None
+    user_record["otp_attempts"] = 0
+    user_record["failed_login_attempts"] = 0
+    _USERS[normalized_email] = user_record
+    auth_service.user_repository.update_user(
+        normalized_email,
+        {
+            "username": user_record["username"],
+            "role": "admin",
+            "status": "active",
+            "verified": True,
+            "password_hash": password_hash,
+            "password_salt": salt,
+            "preferred_currency": user_record.get("preferred_currency", "INR"),
+            "otp_code": None,
+            "otp_expires_at": None,
+            "activation_token": None,
+            "activation_expires_at": None,
+            "otp_attempts": 0,
+            "failed_login_attempts": 0,
+        },
+    )
 
 
 def _cleanup_expired_sessions() -> None:

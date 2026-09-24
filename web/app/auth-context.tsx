@@ -33,6 +33,22 @@ type RavAuthContextValue = {
 
 const RavAuthContext = createContext<RavAuthContextValue | null>(null);
 
+function clearClientSessionState() {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const cookieNames = ["tm_access_token", "tm_refresh_token"];
+  for (const name of cookieNames) {
+    const secureFlag = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Lax${secureFlag}`;
+  }
+
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.clear();
+  }
+}
+
 export function RavAuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -91,9 +107,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
       // Intentionally fail closed without surfacing an error to the browser session close flow.
     } finally {
       setUser(null);
-      if (typeof window !== "undefined") {
-        sessionStorage.clear();
-      }
+      clearClientSessionState();
       closeRequestInFlight.current = false;
     }
   }, []);
@@ -108,6 +122,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore network issues during logout; the client state is still cleared.
     } finally {
       setUser(null);
+      clearClientSessionState();
     }
   }, []);
 
@@ -151,6 +166,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
       "/login",
       "/register",
       "/forgot-password",
+      "/verify-registration",
     ]);
 
     if (!isReady) {
