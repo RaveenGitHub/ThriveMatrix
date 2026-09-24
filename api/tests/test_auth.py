@@ -41,7 +41,7 @@ def test_user_can_register_and_login() -> None:
 
     register_response = client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password},
+        json={"email": email, "password": password, "require_verification": False},
     )
 
     assert register_response.status_code == 201
@@ -184,11 +184,11 @@ def test_admin_can_reset_a_locked_account() -> None:
 
     client.post(
         "/api/v1/auth/register",
-        json={"email": user_email, "password": user_password},
+        json={"email": user_email, "password": user_password, "require_verification": False},
     )
     client.post(
         "/api/v1/auth/register",
-        json={"email": admin_email, "password": admin_password, "role": "admin"},
+        json={"email": admin_email, "password": admin_password, "role": "admin", "require_verification": False},
     )
 
     for _ in range(10):
@@ -356,7 +356,7 @@ def test_password_reset_request_and_reset_work_for_registered_user() -> None:
 
     client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password},
+        json={"email": email, "password": password, "require_verification": False},
     )
     original_hash = auth_service.user_repository.get_by_email(email)["password_hash"]
 
@@ -587,7 +587,7 @@ def test_login_sets_secure_session_cookies_and_cookie_auth_works() -> None:
 
     cookie_client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password},
+        json={"email": email, "password": password, "require_verification": False},
     )
 
     login_response = cookie_client.post(

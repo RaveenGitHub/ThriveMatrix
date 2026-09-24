@@ -274,7 +274,7 @@ class RegisterRequest(BaseModel):
     username: str | None = Field(default=None, min_length=3, max_length=40)
     password: str = Field(min_length=8)
     preferred_currency: str = Field(default="INR")
-    require_verification: bool = False
+    require_verification: bool = True
     role: Literal["user", "admin"] = "user"
 
     @field_validator("password")
@@ -1603,20 +1603,21 @@ def register_user(payload: RegisterRequest) -> dict[str, object]:
 
     user_email = email or f"{phone}@phone.local"
     salt, password_hash = _hash_password(payload.password)
-    verification_required = True
+    verification_required = bool(payload.require_verification)
     otp_code = None
     otp_expires_at = None
     activation_token = None
     activation_expires_at = None
 
-    otp_code = _generate_otp()
-    otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat()
-    if email:
-        activation_token = _generate_activation_token()
-        activation_expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
+    if verification_required:
+        otp_code = _generate_otp()
+        otp_expires_at = (_utc_now() + timedelta(minutes=5)).isoformat()
+        if email:
+            activation_token = _generate_activation_token()
+            activation_expires_at = (_utc_now() + timedelta(minutes=30)).isoformat()
 
-    user_status = "pending_verification"
-    user_verified = False
+    user_status = "pending_verification" if verification_required else "active"
+    user_verified = not verification_required
 
     user_record = {
         "email": user_email,
