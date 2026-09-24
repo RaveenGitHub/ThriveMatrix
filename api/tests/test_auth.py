@@ -46,6 +46,43 @@ def test_user_can_register_and_login() -> None:
     assert tokens["refresh_token"]
 
 
+def test_default_registration_requires_verification() -> None:
+    email = f"verify-default-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+
+    assert register_response.status_code == 201
+    payload = register_response.json()
+    assert payload["verification_required"] is True
+    assert _USERS[email]["status"] in {"pending_verification", "inactive"}
+    assert _USERS[email]["verified"] is False
+
+
+def test_forgot_password_response_does_not_expose_reset_token() -> None:
+    email = f"password-reset-safe-{uuid.uuid4()}@example.com"
+    password = "StrongPass!123"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+
+    response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": email},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert "token" not in payload
+    assert "reset_url" not in payload
+
+
 def test_invalid_credentials_are_rejected() -> None:
     response = client.post(
         "/api/v1/auth/login",

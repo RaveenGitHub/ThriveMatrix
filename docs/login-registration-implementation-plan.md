@@ -2,7 +2,7 @@
 
 ## Status
 
-Status: Completed for the current product baseline. The implementation covers registration, OTP verification, login gating, session controls, and protected route flow; no further engineering work is required unless policy or compliance requirements change.
+Status: In progress for release sign-off. The implementation covers registration, OTP verification, login gating, reset flow, and protected route controls; the remaining work is operational hardening, browser-close validation, and final release approval rather than foundational auth feature completion.
 
 ## Goal
 
