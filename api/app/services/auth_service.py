@@ -24,14 +24,15 @@ class AuthService:
 
     def create_user(self, payload: dict[str, Any]) -> dict[str, Any]:
         salt, password_hash = self.hash_password(payload["password"])
+        require_verification = bool(payload.get("require_verification", True))
         user = {
             "email": payload["email"],
             "phone": payload.get("phone"),
             "username": payload.get("username"),
             "role": payload.get("role", "user"),
             "name": payload.get("name"),
-            "status": "pending_verification" if payload.get("require_verification") else "active",
-            "verified": not payload.get("require_verification", False),
+            "status": "pending_verification" if require_verification else "active",
+            "verified": not require_verification,
             "password_hash": password_hash,
             "password_salt": salt,
             "preferred_currency": payload.get("preferred_currency", "INR").upper(),

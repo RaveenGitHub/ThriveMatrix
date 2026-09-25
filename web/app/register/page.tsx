@@ -29,7 +29,7 @@ export default function RegisterPage() {
       username: form.username.trim() || undefined,
       password: form.password,
       preferred_currency: "INR",
-      require_verification: false,
+      require_verification: true,
       role: "user",
     };
 
@@ -49,7 +49,9 @@ export default function RegisterPage() {
         body: JSON.stringify(payload),
       });
 
-      setSuccess("Account created successfully. You can now sign in.");
+      setSuccess(
+        "Account created. Please check your email or phone for the verification step before signing in.",
+      );
       setForm({
         name: "",
         email: "",
@@ -60,7 +62,7 @@ export default function RegisterPage() {
 
       window.setTimeout(() => {
         router.replace("/login");
-      }, 800);
+      }, 1500);
     } catch (registerError) {
       setError(
         registerError instanceof Error

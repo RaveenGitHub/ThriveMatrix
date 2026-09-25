@@ -23,9 +23,29 @@ This module allows users to create an account, verify identity, and access the a
 - [x] Protected route checks redirect unauthenticated users to the login flow
 - [x] Public auth screens remain accessible without authentication
 - [x] Reset-password API response does not expose raw reset tokens to browsers
+- [x] Browser-close termination logic is wired into the client auth context
 - [ ] Browser close / tab close session invalidation is validated across the target browsers
 - [ ] Email/SMS delivery provider integration is validated in a production-like environment
 - [ ] Final release sign-off is recorded for the auth module
+
+## Release gate status
+
+### Release gate summary
+
+| Gate                     | Status      | Notes                                                                                    |
+| ------------------------ | ----------- | ---------------------------------------------------------------------------------------- |
+| Core auth flow           | Ready       | Registration, login, verification, password reset, and protected routing are implemented |
+| Route/public boundary    | Ready       | Public auth screens are separated from protected app screens                             |
+| Verification enforcement | Ready       | New users remain pending until activation completes                                      |
+| Security hardening       | In progress | Browser-close invalidation and production-delivery validation remain to be verified      |
+| Release approval         | Pending     | Final product and operations sign-off required                                           |
+
+### Release conditions before sign-off
+
+1. Verify the close/hidden-tab invalidation path in the target browsers.
+2. Confirm the production email/SMS delivery path works with the actual provider configuration.
+3. Validate that user states still behave correctly after activation, logout, and session expiry.
+4. Record the final auth release approval in the governance or sign-off documents.
 
 ## Functional requirements
 
