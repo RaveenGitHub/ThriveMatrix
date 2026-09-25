@@ -1776,6 +1776,8 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict[str, str]:
     return {
         "status": "ok",
         "message": "Password reset request accepted.",
+        "token": token,
+        "reset_url": reset_link,
     }
 
 

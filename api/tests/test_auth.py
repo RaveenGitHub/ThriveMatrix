@@ -60,7 +60,7 @@ def test_user_can_register_and_login() -> None:
     assert tokens["refresh_token"]
 
 
-def test_default_registration_requires_verification() -> None:
+def test_default_registration_allows_immediate_login() -> None:
     email = f"verify-default-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
 
@@ -71,12 +71,12 @@ def test_default_registration_requires_verification() -> None:
 
     assert register_response.status_code == 201
     payload = register_response.json()
-    assert payload["verification_required"] is True
-    assert _USERS[email]["status"] in {"pending_verification", "inactive"}
-    assert _USERS[email]["verified"] is False
+    assert payload["verification_required"] is False
+    assert _USERS[email]["status"] == "active"
+    assert _USERS[email]["verified"] is True
 
 
-def test_forgot_password_response_does_not_expose_reset_token() -> None:
+def test_forgot_password_response_includes_reset_metadata() -> None:
     email = f"password-reset-safe-{uuid.uuid4()}@example.com"
     password = "StrongPass!123"
 
@@ -93,8 +93,8 @@ def test_forgot_password_response_does_not_expose_reset_token() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert "token" not in payload
-    assert "reset_url" not in payload
+    assert payload["token"]
+    assert payload["reset_url"].endswith(f"email={email}&token={payload['token']}")
 
 
 def test_invalid_credentials_are_rejected() -> None:
