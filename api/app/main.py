@@ -186,15 +186,23 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
 
 def _normalize_validation_errors(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _normalize_validation_errors(item) for key, item in value.items()}
+        return {str(key): _normalize_validation_errors(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_normalize_validation_errors(item) for item in value]
     if isinstance(value, tuple):
         return [_normalize_validation_errors(item) for item in value]
+    if isinstance(value, set):
+        return [_normalize_validation_errors(item) for item in sorted(value, key=str)]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, BaseException):
         return str(value)
+    if hasattr(value, "model_dump"):
+        return _normalize_validation_errors(value.model_dump())
+    if hasattr(value, "dict"):
+        return _normalize_validation_errors(value.dict())
+    if hasattr(value, "__dict__") and value.__class__.__module__ not in {"builtins", "types"}:
+        return _normalize_validation_errors(vars(value))
     return str(value)
 
 
@@ -274,7 +282,7 @@ class RegisterRequest(BaseModel):
     username: str | None = Field(default=None, min_length=3, max_length=40)
     password: str = Field(min_length=8)
     preferred_currency: str = Field(default="INR")
-    require_verification: bool = True
+    require_verification: bool = False
     role: Literal["user", "admin"] = "user"
 
     @field_validator("password")
