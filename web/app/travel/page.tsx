@@ -74,7 +74,8 @@ export default function TravelPage() {
       {
         title: "Budget envelope",
         value: indianCurrency.format(totalBudget),
-        detail: "Current budget supports a balanced travel plan without strain.",
+        detail:
+          "Current budget supports a balanced travel plan without strain.",
       },
       {
         title: "Savings cadence",
@@ -148,9 +149,6 @@ export default function TravelPage() {
           </nav>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="primary-btn" type="button">
-              + Add record
-            </button>
             <button
               type="button"
               className="ghost-btn"
@@ -173,7 +171,11 @@ export default function TravelPage() {
           <div className="summary-strip" aria-label="Travel summary">
             <div>
               <span className="meta-label">Timing</span>
-              <strong>{trips.some((trip) => trip.status === "Booked") ? "Booked" : "Planned"}</strong>
+              <strong>
+                {trips.some((trip) => trip.status === "Booked")
+                  ? "Booked"
+                  : "Planned"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Budget</span>
@@ -239,7 +241,10 @@ export default function TravelPage() {
                 <input
                   value={form.destination}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, destination: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      destination: event.target.value,
+                    }))
                   }
                   placeholder="e.g. Bali"
                 />
@@ -250,7 +255,10 @@ export default function TravelPage() {
                 <input
                   value={form.timeframe}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, timeframe: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      timeframe: event.target.value,
+                    }))
                   }
                   placeholder="e.g. October 2026"
                 />
@@ -262,7 +270,10 @@ export default function TravelPage() {
                   type="number"
                   value={form.budget}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, budget: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      budget: event.target.value,
+                    }))
                   }
                   placeholder="160000"
                 />
@@ -290,7 +301,10 @@ export default function TravelPage() {
                 <textarea
                   value={form.notes}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, notes: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
                   }
                   placeholder="Add context around booking, stakeholders, or flexibility."
                 />

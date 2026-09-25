@@ -60,9 +60,6 @@ export default function ProfilePage() {
           </nav>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="primary-btn" type="button">
-              + Add record
-            </button>
             <button
               type="button"
               className="ghost-btn"

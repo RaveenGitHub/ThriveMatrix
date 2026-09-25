@@ -5,6 +5,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { ravApiFetch } from "../../lib/api";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
+import {
+  ExtractedStatementRow,
+  StatementImportPanel,
+} from "./statement-importer";
 
 type Transaction = {
   id?: string;
@@ -14,6 +18,7 @@ type Transaction = {
   type: "credit" | "debit";
   category?: string;
   owner_email?: string;
+  currency?: string;
 };
 
 type TransactionSummary = {
@@ -81,6 +86,8 @@ const indianCurrency = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 0,
 });
 
+const formatMoney = (value: number) => indianCurrency.format(value);
+
 export default function TransactionsPage() {
   const { isAdmin, logout } = useRavAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -93,6 +100,12 @@ export default function TransactionsPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statementRows, setStatementRows] = useState<ExtractedStatementRow[]>(
+    [],
+  );
+  const [statementSourceName, setStatementSourceName] = useState("");
+  const [statementStatus, setStatementStatus] = useState("");
+  const [savingStatement, setSavingStatement] = useState(false);
   const [form, setForm] = useState({
     description: "",
     category: "",
@@ -163,6 +176,88 @@ export default function TransactionsPage() {
       active = false;
     };
   }, []);
+
+  const handleStatementReady = (
+    rows: ExtractedStatementRow[],
+    sourceName: string,
+  ) => {
+    setStatementRows(rows);
+    setStatementSourceName(sourceName);
+    setStatementStatus(`Review ${rows.length} extracted statement entries.`);
+    setError("");
+  };
+
+  const handleConfirmStatement = async () => {
+    if (statementRows.length === 0) {
+      return;
+    }
+
+    try {
+      setSavingStatement(true);
+      setError("");
+
+      const reviewPayload = {
+        source_name: statementSourceName || "bank-statement",
+        records: statementRows.map((row) => ({
+          date: row.date,
+          description: row.description,
+          amount: row.amount,
+          type: row.type,
+          category: row.category ?? "Misc Expense",
+        })),
+      };
+
+      const reviewResponse = await ravApiFetch<{
+        accepted_count: number;
+        duplicate_count: number;
+        transactions: Array<{
+          date: string;
+          description: string;
+          amount: number;
+          type: "credit" | "debit";
+          category?: string;
+        }>;
+      }>("/api/v1/transactions/review", {
+        method: "POST",
+        body: JSON.stringify(reviewPayload),
+      });
+
+      const importPayload = {
+        source_name: reviewPayload.source_name,
+        records: (reviewResponse.transactions ?? []).map((transaction) => ({
+          date: transaction.date,
+          description: transaction.description,
+          amount: transaction.amount,
+          type: transaction.type,
+          category: transaction.category ?? "Misc Expense",
+        })),
+      };
+
+      if (importPayload.records.length > 0) {
+        await ravApiFetch("/api/v1/transactions/import", {
+          method: "POST",
+          body: JSON.stringify(importPayload),
+        });
+      }
+
+      setStatementRows([]);
+      setStatementSourceName("");
+      setStatementStatus(
+        reviewResponse.duplicate_count > 0
+          ? `Imported ${reviewResponse.accepted_count} entries, skipped ${reviewResponse.duplicate_count} duplicates.`
+          : `Imported ${reviewResponse.accepted_count} entries successfully.`,
+      );
+      await loadData();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to import statement transactions",
+      );
+    } finally {
+      setSavingStatement(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -244,9 +339,6 @@ export default function TransactionsPage() {
           </nav>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="primary-btn" type="button">
-              + Add record
-            </button>
             <button
               type="button"
               className="ghost-btn"
@@ -287,6 +379,8 @@ export default function TransactionsPage() {
                 <h3>Log a transaction</h3>
               </div>
             </div>
+
+            <StatementImportPanel onTransactionsReady={handleStatementReady} />
 
             <form className="goal-form" onSubmit={handleSubmit}>
               <div className="field-grid">
@@ -381,46 +475,222 @@ export default function TransactionsPage() {
             </form>
           </article>
 
-          <aside className="panel">
+          {statementRows.length > 0 ? (
+            <article className="panel" style={{ gridColumn: "1 / -1" }}>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">REVIEW</p>
+                  <h3>Statement review</h3>
+                </div>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={() => void handleConfirmStatement()}
+                  disabled={savingStatement}
+                >
+                  {savingStatement
+                    ? "Saving entries…"
+                    : "Confirm extracted transactions"}
+                </button>
+              </div>
+
+              <p style={{ marginTop: 0, color: "#475467" }}>
+                {statementStatus ||
+                  `Reviewing ${statementRows.length} extracted records from ${statementSourceName || "statement upload"}.`}
+              </p>
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Date
+                      </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Description
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Credit
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Debit
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Amount
+                      </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Currency
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statementRows.map((row, index) => (
+                      <tr key={`${row.date}-${row.description}-${index}`}>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {row.date}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {row.description}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {row.type === "credit"
+                            ? formatMoney(row.amount)
+                            : "—"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {row.type === "debit" ? formatMoney(row.amount) : "—"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {formatMoney(row.amount)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {row.currency}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          ) : null}
+
+          <aside className="panel" style={{ gridColumn: "1 / -1" }}>
             <div className="section-head">
               <div>
                 <p className="eyebrow">RECENT</p>
-                <h3>Activity feed</h3>
+                <h3>Transaction ledger</h3>
               </div>
             </div>
 
-            <div className="goal-list compact-list">
+            <div style={{ overflowX: "auto" }}>
               {loading ? (
                 <div className="goal-item">Loading transactions…</div>
               ) : transactions.length === 0 ? (
                 <div className="goal-item">No transactions yet.</div>
               ) : (
-                transactions.map((transaction) => (
-                  <div className="goal-item" key={transaction.id}>
-                    <div className="goal-topline">
-                      <strong>{transaction.description}</strong>
-                      <span
-                        className={`pill ${transaction.type === "credit" ? "success" : "neutral"}`}
-                      >
-                        {transaction.type === "credit" ? "Credit" : "Debit"}
-                      </span>
-                    </div>
-                    <div className="goal-details">
-                      <span>{transaction.category || "Uncategorized"}</span>
-                      <span>{transaction.date}</span>
-                    </div>
-                    <div className="goal-details">
-                      <span
-                        className={
-                          transaction.type === "credit" ? "positive" : ""
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Date
+                      </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Description
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Credit
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Debit
+                      </th>
+                      <th style={{ textAlign: "right", padding: "10px 8px" }}>
+                        Amount
+                      </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px" }}>
+                        Currency
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((transaction) => (
+                      <tr
+                        key={
+                          transaction.id ??
+                          `${transaction.date}-${transaction.description}`
                         }
                       >
-                        {transaction.type === "credit" ? "+" : "-"}
-                        {indianCurrency.format(transaction.amount)}
-                      </span>
-                    </div>
-                  </div>
-                ))
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {transaction.date}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {transaction.description}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {transaction.type === "credit"
+                            ? formatMoney(transaction.amount)
+                            : "—"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {transaction.type === "debit"
+                            ? formatMoney(transaction.amount)
+                            : "—"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "right",
+                          }}
+                        >
+                          {formatMoney(transaction.amount)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                          }}
+                        >
+                          {transaction.currency ?? "INR"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           </aside>
