@@ -1154,8 +1154,6 @@ def _ensure_local_bootstrap_admin() -> None:
             "preferred_currency": user_record.get("preferred_currency", "INR"),
             "otp_code": None,
             "otp_expires_at": None,
-            "activation_token": None,
-            "activation_expires_at": None,
             "otp_attempts": 0,
             "failed_login_attempts": 0,
         },
@@ -2346,14 +2344,155 @@ def _validate_statement_upload(filename: str | None, content_type: str | None, p
     if payload.startswith(b"MZ"):
         raise HTTPException(status_code=400, detail="Malware signature detected in statement upload")
 
-    if extension == ".pdf" and not payload.startswith(b"%PDF"):
-        raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
+    if extension == ".pdf":
+        if not payload.startswith(b"%PDF"):
+            raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
+        text_fragment = payload[:4096].decode("latin-1", errors="ignore").lower()
+        suspicious_tokens = ("javascript", "/launch", "/openaction", "<script", "powershell", "cmd.exe")
+        if any(token in text_fragment for token in suspicious_tokens):
+            raise HTTPException(status_code=400, detail="Statement PDF contains suspicious executable content")
     if extension == ".xlsx" and not payload.startswith(b"PK\x03\x04"):
         raise HTTPException(status_code=400, detail="XLSX statement is malformed or not a valid document")
     if extension == ".csv" and b"<script" in payload.lower():
         raise HTTPException(status_code=400, detail="CSV statement contains unsafe embedded content")
 
     return extension, content_type or "application/octet-stream"
+
+
+def _extract_pdf_text_payload(payload: bytes) -> str:
+    text = payload.decode("latin-1", errors="ignore")
+    if "%PDF" not in text[:1024]:
+        raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
+
+    suspicious_tokens = ("javascript", "/launch", "/openaction", "<script", "cmd.exe", "powershell")
+    if any(token in text.lower() for token in suspicious_tokens):
+        raise HTTPException(status_code=400, detail="Statement PDF contains suspicious executable content")
+
+    extracted_parts: list[str] = []
+    for match in re.finditer(r"BT\s*(.*?)\s*ET", text, flags=re.DOTALL | re.IGNORECASE):
+        block = match.group(1)
+        for string_match in re.finditer(r"\\\((?:\\.|[^()\\])*\\\)|\((?:\\.|[^()\\])*\)", block):
+            candidate = string_match.group(0)
+            candidate = candidate[1:-1] if candidate.startswith("(") and candidate.endswith(")") else candidate
+            candidate = candidate.replace("\\(", "(").replace("\\)", ")").replace("\\n", " ")
+            candidate = bytes(candidate, "latin-1").decode("utf-8", errors="ignore")
+            if candidate.strip():
+                extracted_parts.append(candidate.strip())
+
+    if not extracted_parts:
+        fallback = re.findall(r"\((?:\\.|[^()\\])*\)", text)
+        for candidate in fallback:
+            cleaned = candidate[1:-1].replace("\\(", "(").replace("\\)", ")")
+            cleaned = bytes(cleaned, "latin-1").decode("utf-8", errors="ignore")
+            if cleaned.strip():
+                extracted_parts.append(cleaned.strip())
+
+    return "\n".join(extracted_parts)
+
+
+def _parse_statement_preview_from_text(raw_text: str) -> list[dict[str, Any]]:
+    lines: list[str] = []
+    for line in raw_text.splitlines():
+        cleaned = re.sub(r"\s+", " ", line).strip()
+        if cleaned and len(cleaned) > 6:
+            lines.append(cleaned)
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for line in lines:
+        date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})", line)
+        if not date_match:
+            continue
+
+        amount_matches = list(re.finditer(r"(?:₹|INR|Rs\.?|rs\.?|INR\s*)?\s*([+-]?\d[\d,]*(?:\.\d{1,2})?)", line))
+        direction_match = re.search(r"\b(CR|DR|CREDIT|DEBIT)\b", line, flags=re.IGNORECASE)
+        if not amount_matches:
+            continue
+
+        raw_date = date_match.group(1)
+        amount_match = None
+        for candidate in amount_matches:
+            if candidate.start() > date_match.end():
+                amount_match = candidate
+                break
+        if amount_match is None:
+            amount_match = amount_matches[-1]
+
+        raw_amount = amount_match.group(1).replace(",", "")
+        try:
+            amount_value = float(raw_amount)
+        except ValueError:
+            continue
+
+        if amount_value == 0:
+            continue
+
+        description = line[date_match.end():amount_match.start()].strip()
+        description = re.sub(r"\b(?:CR|DR|CREDIT|DEBIT|INR|RS|₹)\b", " ", description, flags=re.IGNORECASE)
+        description = re.sub(r"\s+", " ", description).strip()
+        description = description[:200]
+        description = re.sub(r"^[\-:|/]+\s*", "", description)
+        description = re.sub(r"\s*[|/:-]+\s*$", "", description)
+        description = description or "Bank statement entry"
+
+        credit = amount_value if (direction_match and re.search(r"credit|cr", direction_match.group(0), re.IGNORECASE)) or "credit" in line.lower() else 0.0
+        debit = amount_value if (direction_match and re.search(r"debit|dr", direction_match.group(0), re.IGNORECASE)) or "debit" in line.lower() else 0.0
+        if debit and not credit:
+            type_value = "debit"
+            amount_value = abs(amount_value)
+        elif credit and not debit:
+            type_value = "credit"
+            amount_value = abs(amount_value)
+        else:
+            type_value = "debit" if amount_value > 0 and "debit" in line.lower() else "credit"
+            amount_value = abs(amount_value)
+
+        if type_value == "credit":
+            credit = amount_value
+            debit = 0.0
+        else:
+            credit = 0.0
+            debit = amount_value
+
+        if re.search(r"salary|payroll|bonus|income|refund|credit", line, flags=re.IGNORECASE):
+            type_value = "credit"
+            credit = amount_value
+            debit = 0.0
+        if re.search(r"grocery|rent|emi|insurance|bill|payment|withdrawal|debit|expense", line, flags=re.IGNORECASE):
+            type_value = "debit"
+            credit = 0.0
+            debit = amount_value
+
+        normalized_date = raw_date
+        if re.fullmatch(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", raw_date):
+            parts = re.split(r"[/-]", raw_date)
+            if len(parts) == 3:
+                first, second, year_part = parts
+                first_num = int(first)
+                second_num = int(second)
+                year = int(year_part) if len(year_part) == 4 else 2000 + int(year_part)
+                try:
+                    normalized_date = datetime(year, second_num, first_num).date().isoformat()
+                except ValueError:
+                    continue
+
+        fingerprint = f"{normalized_date}|{description.lower()}|{amount_value:.2f}|{type_value}"
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+
+        rows.append({
+            "date": normalized_date,
+            "description": description[:200],
+            "amount": round(amount_value, 2),
+            "type": type_value,
+            "category": "Misc Expense" if type_value == "debit" else "Salary",
+            "currency": "INR",
+            "credit": round(credit, 2),
+            "debit": round(debit, 2),
+        })
+
+    return rows[:50]
 
 
 def _get_user_policies(user_email: str) -> list[dict[str, Any]]:
@@ -3510,6 +3649,11 @@ async def upload_statement(
     }
     _IMPORT_JOBS.append(job)
 
+    preview_rows: list[dict[str, Any]] = []
+    if extension == ".pdf":
+        pdf_text = _extract_pdf_text_payload(payload)
+        preview_rows = _parse_statement_preview_from_text(pdf_text)
+
     _record_audit(
         "transaction.statement_uploaded",
         actor=user["email"],
@@ -3528,6 +3672,8 @@ async def upload_statement(
         "filename": os.path.basename(file.filename),
         "storage": {"private": True, "location": storage_location},
         "job": {"id": job_id, "status": "validated", "retries": 0, "max_retries": 3},
+        "preview": preview_rows,
+        "preview_count": len(preview_rows),
     }
 
 

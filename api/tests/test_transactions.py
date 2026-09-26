@@ -2,7 +2,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import _parse_statement_preview_from_text, app
 
 client = TestClient(app)
 
@@ -162,6 +162,16 @@ def test_statement_upload_rejects_unsupported_or_malicious_files() -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert malicious_pdf.status_code == 400
+
+
+def test_statement_preview_parses_dd_mm_yyyy_dates_correctly() -> None:
+    rows = _parse_statement_preview_from_text(
+        "12/08/2026 SALARY CREDIT 85000.00 CR\n13/08/2026 GROCERIES 3500.00 DR"
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["date"] == "2026-08-12"
+    assert rows[1]["date"] == "2026-08-13"
 
 
 def test_transaction_review_normalizes_and_deduplicates_import_rows() -> None:

@@ -64,22 +64,26 @@ export default function WellbeingPage() {
       {
         title: "Resilience score",
         value: `${Math.max(75, averageEnergy)}%`,
-        detail: "Your current resilience is strong enough to absorb moderate stress without disruption.",
+        detail:
+          "Your current resilience is strong enough to absorb moderate stress without disruption.",
       },
       {
         title: "Recovery rhythm",
         value: averageEnergy > 70 ? "Healthy" : "Monitor",
-        detail: "Recovery patterns remain supportive and consistent with daily demands.",
+        detail:
+          "Recovery patterns remain supportive and consistent with daily demands.",
       },
       {
         title: "Stress load",
         value: highCount > 0 ? "Moderate" : "Stable",
-        detail: "Stress is manageable, but a steady review still matters for sustainability.",
+        detail:
+          "Stress is manageable, but a steady review still matters for sustainability.",
       },
       {
         title: "Balance posture",
         value: averageEnergy > 60 ? "Stable" : "Review",
-        detail: "Work, rest, and personal responsibilities are mostly aligned with your capacity.",
+        detail:
+          "Work, rest, and personal responsibilities are mostly aligned with your capacity.",
       },
     ];
   }, [checkins]);
@@ -98,7 +102,9 @@ export default function WellbeingPage() {
     const energy = Number(form.energy);
 
     if (!focus || Number.isNaN(energy) || energy < 0 || energy > 100) {
-      setError("Please provide a focus area and valid energy score between 0 and 100.");
+      setError(
+        "Please provide a focus area and valid energy score between 0 and 100.",
+      );
       return;
     }
 
@@ -141,9 +147,6 @@ export default function WellbeingPage() {
           </nav>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="primary-btn" type="button">
-              + Add record
-            </button>
             <button
               type="button"
               className="ghost-btn"
@@ -166,7 +169,11 @@ export default function WellbeingPage() {
           <div className="summary-strip" aria-label="Wellbeing summary">
             <div>
               <span className="meta-label">Status</span>
-              <strong>{checkins.some((item) => item.status === "High") ? "Monitor" : "Stable"}</strong>
+              <strong>
+                {checkins.some((item) => item.status === "High")
+                  ? "Monitor"
+                  : "Stable"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Resilience</span>
@@ -232,7 +239,10 @@ export default function WellbeingPage() {
                 <input
                   value={form.focus}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, focus: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      focus: event.target.value,
+                    }))
                   }
                   placeholder="e.g. Recovery rhythm"
                 />
@@ -261,7 +271,10 @@ export default function WellbeingPage() {
                   type="number"
                   value={form.energy}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, energy: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      energy: event.target.value,
+                    }))
                   }
                   placeholder="82"
                 />
@@ -272,7 +285,10 @@ export default function WellbeingPage() {
                 <textarea
                   value={form.notes}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, notes: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
                   }
                   placeholder="Add context around recovery, stressors, or support actions."
                 />

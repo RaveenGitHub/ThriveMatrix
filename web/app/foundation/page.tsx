@@ -19,7 +19,8 @@ const initialControls: FoundationControl[] = [
     name: "Runtime contracts",
     status: "Stable",
     owner: "Platform",
-    detail: "Python and Node toolchains are pinned and validated before deployment.",
+    detail:
+      "Python and Node toolchains are pinned and validated before deployment.",
   },
   {
     id: "FND-204",
@@ -46,34 +47,43 @@ const defaultForm = {
 
 export default function FoundationPage() {
   const { isAdmin, logout } = useRavAuth();
-  const [controls, setControls] = useState<FoundationControl[]>(initialControls);
+  const [controls, setControls] =
+    useState<FoundationControl[]>(initialControls);
   const [form, setForm] = useState(defaultForm);
   const [error, setError] = useState("");
 
   const foundationStats = useMemo(() => {
-    const stableCount = controls.filter((item) => item.status === "Stable").length;
-    const enabledCount = controls.filter((item) => item.status === "Enabled").length;
+    const stableCount = controls.filter(
+      (item) => item.status === "Stable",
+    ).length;
+    const enabledCount = controls.filter(
+      (item) => item.status === "Enabled",
+    ).length;
 
     return [
       {
         title: "Runtime baseline",
         value: stableCount > 0 ? "Ready" : "Setup",
-        detail: "The local stack is documented and aligned to the approved Python and Node runtime constraints.",
+        detail:
+          "The local stack is documented and aligned to the approved Python and Node runtime constraints.",
       },
       {
         title: "Delivery controls",
         value: enabledCount > 0 ? "Active" : "Paused",
-        detail: "Build, lint, and validation paths are part of the working delivery process.",
+        detail:
+          "Build, lint, and validation paths are part of the working delivery process.",
       },
       {
         title: "Contract quality",
         value: "Versioned",
-        detail: "API behavior and configuration rules remain explicit and testable across stages.",
+        detail:
+          "API behavior and configuration rules remain explicit and testable across stages.",
       },
       {
         title: "Security baseline",
         value: "Approved",
-        detail: "Core policy guardrails and redaction patterns are in place before deeper feature work proceeds.",
+        detail:
+          "Core policy guardrails and redaction patterns are in place before deeper feature work proceeds.",
       },
     ];
   }, [controls]);
@@ -133,9 +143,6 @@ export default function FoundationPage() {
           </nav>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="primary-btn" type="button">
-              + Add record
-            </button>
             <button
               type="button"
               className="ghost-btn"
@@ -158,7 +165,11 @@ export default function FoundationPage() {
           <div className="summary-strip" aria-label="Foundation summary">
             <div>
               <span className="meta-label">State</span>
-              <strong>{controls.some((item) => item.status === "Stable") ? "Ready" : "Setup"}</strong>
+              <strong>
+                {controls.some((item) => item.status === "Stable")
+                  ? "Ready"
+                  : "Setup"}
+              </strong>
             </div>
             <div>
               <span className="meta-label">Runtime</span>
@@ -224,7 +235,10 @@ export default function FoundationPage() {
                 <input
                   value={form.name}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, name: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
                   }
                   placeholder="e.g. Runtime contracts"
                 />
@@ -235,7 +249,10 @@ export default function FoundationPage() {
                 <input
                   value={form.owner}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, owner: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      owner: event.target.value,
+                    }))
                   }
                   placeholder="e.g. Platform"
                 />
@@ -264,7 +281,10 @@ export default function FoundationPage() {
                 <textarea
                   value={form.detail}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, detail: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      detail: event.target.value,
+                    }))
                   }
                   placeholder="Add context around runtime, release, or operational check results."
                 />
