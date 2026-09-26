@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { API_BASE_URL } from "../../lib/api";
 
 export type ExtractedStatementRow = {
   date: string;
@@ -229,11 +230,54 @@ export function StatementImportPanel({
     }
 
     setIsParsing(true);
-    setStatusText(`Reading ${file.name}...`);
+    setStatusText(`Uploading and reading ${file.name}...`);
 
     try {
-      const fileBuffer = await file.arrayBuffer();
-      const rows = await extractTransactionsFromPdf(fileBuffer);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadResponse = await fetch(
+        `${API_BASE_URL}/api/v1/transactions/upload`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        },
+      );
+
+      const uploadPayload = uploadResponse.headers
+        .get("content-type")
+        ?.includes("application/json")
+        ? await uploadResponse.json().catch(() => null)
+        : null;
+
+      if (!uploadResponse.ok) {
+        const message =
+          uploadPayload?.detail ??
+          uploadPayload?.error?.message ??
+          "The uploaded statement is not valid for secure processing.";
+        throw new Error(message);
+      }
+
+      const serverRows = Array.isArray(uploadPayload?.preview)
+        ? uploadPayload.preview.map((row: Record<string, unknown>) => ({
+            date: String(row.date ?? ""),
+            description: String(row.description ?? "Bank statement entry"),
+            amount: Number(row.amount ?? 0),
+            type: String(row.type ?? "debit") === "credit" ? "credit" : "debit",
+            category:
+              typeof row.category === "string" ? row.category : undefined,
+            currency: "INR",
+            credit: Number(row.credit ?? 0),
+            debit: Number(row.debit ?? 0),
+          }))
+        : [];
+
+      const rows =
+        serverRows.length > 0
+          ? serverRows
+          : await extractTransactionsFromPdf(await file.arrayBuffer());
+
       if (rows.length === 0) {
         setStatusText(
           "No readable transactions were found in this statement. Please try another PDF or enter transactions manually.",
