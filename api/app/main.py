@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import io
 import os
 import secrets
 import socket
@@ -10,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -2359,7 +2360,7 @@ def _validate_statement_upload(filename: str | None, content_type: str | None, p
     return extension, content_type or "application/octet-stream"
 
 
-def _extract_pdf_text_payload(payload: bytes) -> str:
+def _extract_pdf_text_payload(payload: bytes, password: str | None = None) -> str:
     text = payload.decode("latin-1", errors="ignore")
     if "%PDF" not in text[:1024]:
         raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
@@ -2367,6 +2368,33 @@ def _extract_pdf_text_payload(payload: bytes) -> str:
     suspicious_tokens = ("javascript", "/launch", "/openaction", "<script", "cmd.exe", "powershell")
     if any(token in text.lower() for token in suspicious_tokens):
         raise HTTPException(status_code=400, detail="Statement PDF contains suspicious executable content")
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(payload), password=password)
+        if reader.is_encrypted:
+            if not password:
+                raise HTTPException(status_code=401, detail="This PDF is password protected. Please enter the PDF password to continue.")
+            decrypt_result = reader.decrypt(password)
+            if decrypt_result == 0:
+                raise HTTPException(status_code=401, detail="The PDF password is incorrect. Please enter the correct password to continue.")
+
+        extracted_parts: list[str] = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            cleaned = re.sub(r"\s+", " ", page_text).strip()
+            if cleaned:
+                extracted_parts.append(cleaned)
+
+        if extracted_parts:
+            return "\n".join(extracted_parts)
+    except HTTPException:
+        raise
+    except ImportError:
+        pass
+    except Exception:
+        pass
 
     extracted_parts: list[str] = []
     for match in re.finditer(r"BT\s*(.*?)\s*ET", text, flags=re.DOTALL | re.IGNORECASE):
@@ -2391,16 +2419,28 @@ def _extract_pdf_text_payload(payload: bytes) -> str:
 
 
 def _parse_statement_preview_from_text(raw_text: str) -> list[dict[str, Any]]:
-    lines: list[str] = []
-    for line in raw_text.splitlines():
-        cleaned = re.sub(r"\s+", " ", line).strip()
-        if cleaned and len(cleaned) > 6:
-            lines.append(cleaned)
+    normalized_text = (raw_text or "").strip()
+    date_pattern = r"(?<!\d)(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})(?!\d)"
+
+    segments: list[str] = []
+    date_matches = list(re.finditer(date_pattern, normalized_text))
+    if date_matches:
+        for index, date_match in enumerate(date_matches):
+            start = date_match.start()
+            end = date_matches[index + 1].start() if index + 1 < len(date_matches) else len(normalized_text)
+            candidate = re.sub(r"\s+", " ", normalized_text[start:end]).strip()
+            if candidate and len(candidate) > 6:
+                segments.append(candidate)
+    else:
+        for line in normalized_text.splitlines():
+            cleaned = re.sub(r"\s+", " ", line).strip()
+            if cleaned and len(cleaned) > 6:
+                segments.append(cleaned)
 
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for line in lines:
-        date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})", line)
+    for line in segments:
+        date_match = re.search(date_pattern, line)
         if not date_match:
             continue
 
@@ -2474,7 +2514,7 @@ def _parse_statement_preview_from_text(raw_text: str) -> list[dict[str, Any]]:
                 try:
                     normalized_date = datetime(year, second_num, first_num).date().isoformat()
                 except ValueError:
-                    continue
+                    normalized_date = f"{year:04d}-{second_num:02d}-{first_num:02d}"
 
         fingerprint = f"{normalized_date}|{description.lower()}|{amount_value:.2f}|{type_value}"
         if fingerprint in seen:
@@ -3618,6 +3658,7 @@ def domain_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[st
 @app.post("/api/v1/transactions/upload", tags=["transactions"], status_code=status.HTTP_201_CREATED)
 async def upload_statement(
     file: UploadFile = File(...),
+    password: str | None = Form(default=None),
     user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     payload = await file.read()
@@ -3651,7 +3692,7 @@ async def upload_statement(
 
     preview_rows: list[dict[str, Any]] = []
     if extension == ".pdf":
-        pdf_text = _extract_pdf_text_payload(payload)
+        pdf_text = _extract_pdf_text_payload(payload, password=password)
         preview_rows = _parse_statement_preview_from_text(pdf_text)
 
     _record_audit(
