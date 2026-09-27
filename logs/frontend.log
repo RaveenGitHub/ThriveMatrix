@@ -5,9 +5,24 @@
 ▲ Next.js 16.3.1 (Turbopack)
 - Local:         http://127.0.0.1:3000
 - Network:       http://127.0.0.1:3000
-✓ Ready in 15.1s
-✓ Running next.config took 15ms
+✓ Ready in 2.1s
+✓ Running next.config took 16ms
 
- GET / 200 in 4.0s (next.js: 3.8s, application-code: 238ms)
- GET / 200 in 70ms (next.js: 5ms, application-code: 65ms)
- GET / 200 in 81ms (next.js: 17ms, application-code: 64ms)
+○ Compiling /_not-found/page ...
+ GET / 200 in 5.1s (next.js: 4.8s, application-code: 244ms)
+ POST /api/v1/auth/session/terminate 404 in 6.2s (next.js: 5.9s, application-code: 337ms)
+ POST /api/v1/auth/session/terminate 404 in 6.2s (next.js: 5.8s, application-code: 361ms)
+ GET /login 200 in 6.2s (next.js: 6.0s, application-code: 238ms)
+ POST /api/v1/auth/session/terminate 404 in 159ms (next.js: 13ms, application-code: 146ms)
+ POST /api/v1/auth/session/terminate 404 in 161ms (next.js: 22ms, application-code: 139ms)
+ POST /api/v1/auth/session/terminate 404 in 165ms (next.js: 27ms, application-code: 138ms)
+ GET / 200 in 42ms (next.js: 6ms, application-code: 36ms)
+ HEAD / 200 in 40ms (next.js: 5ms, application-code: 35ms)
+ GET /home 200 in 73ms (next.js: 35ms, application-code: 38ms)
+ GET /home 200 in 22ms (next.js: 4ms, application-code: 17ms)
+ GET /transactions 200 in 37ms (next.js: 21ms, application-code: 17ms)
+ GET /transactions 200 in 20ms (next.js: 4ms, application-code: 16ms)
+ POST /api/v1/auth/session/terminate 404 in 91ms (next.js: 15ms, application-code: 76ms)
+ POST /api/v1/auth/session/terminate 404 in 100ms (next.js: 27ms, application-code: 73ms)
+ GET /login 200 in 24ms (next.js: 8ms, application-code: 15ms)
+ GET /login 200 in 16ms (next.js: 3ms, application-code: 13ms)
