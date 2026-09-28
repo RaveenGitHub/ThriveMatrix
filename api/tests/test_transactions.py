@@ -283,6 +283,56 @@ def test_transaction_summary_and_category_aggregation_are_available() -> None:
     assert any(item["category"] == "Misc Expense" for item in category_payload["categories"])
 
 
+def test_transaction_summary_converts_mixed_source_currencies() -> None:
+    email = f"summary-currency-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    preference = client.put(
+        "/api/v1/profile/currency",
+        json={"preferred_currency": "AED"},
+        headers=headers,
+    )
+    assert preference.status_code == 200
+
+    imported = client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Mixed Currency Bank",
+            "records": [
+                {
+                    "date": "2026-08-01",
+                    "description": "Salary",
+                    "amount": 100,
+                    "type": "credit",
+                    "currency": "USD",
+                },
+                {
+                    "date": "2026-08-02",
+                    "description": "Groceries",
+                    "amount": 100,
+                    "type": "debit",
+                    "currency": "EUR",
+                },
+            ],
+        },
+        headers=headers,
+    )
+    assert imported.status_code == 201
+    assert {item["currency"] for item in imported.json()["transactions"]} == {"USD", "EUR"}
+
+    summary = client.get("/api/v1/transactions/summary", headers=headers)
+    listing = client.get("/api/v1/transactions", headers=headers)
+
+    assert summary.status_code == 200
+    assert summary.json()["currency"] == "AED"
+    assert summary.json()["income_total"] > 100
+    assert summary.json()["expense_total"] > 100
+    assert listing.status_code == 200
+    assert listing.json()["currency"] == "AED"
+    assert all(item["display_currency"] == "AED" for item in listing.json()["transactions"])
+
+
 def test_transaction_update_and_delete_endpoints() -> None:
     email = f"tx-update-delete-{uuid.uuid4()}@example.com"
     token = _register_and_login(email)

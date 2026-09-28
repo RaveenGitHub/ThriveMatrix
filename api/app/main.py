@@ -601,7 +601,13 @@ class TransactionRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    currency: str = Field(default="INR", min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("category")
     @classmethod
@@ -621,7 +627,13 @@ class TransactionReviewRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    currency: str = Field(default="INR", min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("description")
     @classmethod
@@ -662,7 +674,13 @@ class TransactionUpdateRequest(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=200)
     amount: float | None = Field(default=None, gt=0)
     type: str | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value is not None else None
 
     @field_validator("description")
     @classmethod
@@ -4171,10 +4189,11 @@ def review_transactions(
             "description": record.description.strip().lower(),
             "amount": float(record.amount),
             "type": record.type.strip().lower(),
+            "currency": record.currency,
             "category": _resolve_transaction_category(record.category, record.description),
         }
         fingerprint = hashlib.sha256(
-            f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}".encode("utf-8")
+            f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}|{normalized['currency']}".encode("utf-8")
         ).hexdigest()
         if fingerprint in seen:
             continue
@@ -4185,6 +4204,7 @@ def review_transactions(
                 "description": normalized["description"],
                 "amount": normalized["amount"],
                 "type": normalized["type"],
+                "currency": normalized["currency"],
                 "category": normalized["category"],
                 "owner_email": user["email"],
                 "source_name": payload.source_name,
@@ -4217,6 +4237,7 @@ def import_transactions(
             "description": record.description,
             "amount": record.amount,
             "type": record.type,
+            "currency": record.currency,
             "category": category,
             "owner_email": user["email"],
         }
@@ -4270,44 +4291,95 @@ def _resolve_transaction_category(category: str | None, description: str) -> str
 
 
 @app.get("/api/v1/transactions/summary", tags=["transactions"])
-def transaction_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+def transaction_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    income_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "credit")
-    expense_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "debit")
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    income_total = Decimal("0")
+    expense_total = Decimal("0")
+    warnings: list[dict[str, str]] = []
+    for transaction in owner_transactions:
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            ).display_amount
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"transaction_id": str(transaction.get("id")), "message": str(exc)})
+            continue
+        if transaction["type"] == "credit":
+            income_total += converted
+        else:
+            expense_total += converted
     net_total = income_total - expense_total
-    savings_rate = (net_total / income_total * 100.0) if income_total else 0.0
+    savings_rate = (net_total / income_total * Decimal("100")) if income_total else Decimal("0")
     return {
-        "income_total": income_total,
-        "expense_total": expense_total,
-        "net_total": net_total,
-        "savings_rate": round(savings_rate, 2),
+        "income_total": float(income_total),
+        "expense_total": float(expense_total),
+        "net_total": float(net_total),
+        "savings_rate": round(float(savings_rate), 2),
         "transaction_count": len(owner_transactions),
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
 @app.get("/api/v1/transactions/categories", tags=["transactions"])
-def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    bucket: dict[str, float] = {}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    bucket: dict[str, Decimal] = {}
+    warnings: list[dict[str, str]] = []
     for transaction in owner_transactions:
         category = transaction.get("category") or _categorize_transaction(transaction["description"])
-        bucket[category] = bucket.get(category, 0.0) + float(transaction["amount"])
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            ).display_amount
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"transaction_id": str(transaction.get("id")), "message": str(exc)})
+            continue
+        bucket[category] = bucket.get(category, Decimal("0")) + converted
 
     categories = [
         {
             "category": category,
-            "total": round(total, 2),
+            "total": float(total),
             "count": len([t for t in owner_transactions if (t.get("category") or _categorize_transaction(t["description"])) == category]),
         }
         for category, total in sorted(bucket.items())
     ]
-    return {"categories": categories}
+    return {"categories": categories, "currency": display_currency, "warnings": warnings}
 
 
 @app.get("/api/v1/transactions", tags=["transactions"])
-def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    return {"transactions": owner_transactions}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    transactions: list[dict[str, Any]] = []
+    for transaction in owner_transactions:
+        item = dict(transaction)
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            )
+            item["display_amount"] = float(converted.display_amount)
+            item["display_currency"] = display_currency
+            item["conversion_status"] = converted.conversion_status
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            item["display_amount"] = None
+            item["display_currency"] = display_currency
+            item["conversion_status"] = "rate_not_available"
+            item["conversion_warning"] = str(exc)
+        transactions.append(item)
+    return {"transactions": transactions, "currency": display_currency}
 
 
 @app.put("/api/v1/transactions/{transaction_id}", tags=["transactions"])
@@ -4326,6 +4398,8 @@ def update_transaction(
         transaction["amount"] = payload.amount
     if payload.type is not None:
         transaction["type"] = payload.type
+    if payload.currency is not None:
+        transaction["currency"] = payload.currency
     if payload.category is not None:
         transaction["category"] = payload.category
 
