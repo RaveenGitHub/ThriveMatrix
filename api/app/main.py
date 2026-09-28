@@ -725,6 +725,7 @@ class InsurancePolicyCreateRequest(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=200)
     policy_type: str
     premium_amount: float = Field(gt=0)
+    policy_currency: str = Field(default="INR", min_length=3, max_length=3)
     coverage_amount: float = Field(gt=0)
     coverage_goal: float | None = Field(default=None, ge=0)
     premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
@@ -735,6 +736,11 @@ class InsurancePolicyCreateRequest(BaseModel):
     end_date: str
     renewal_date: str | None = None
     status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_currency")
+    @classmethod
+    def normalize_policy_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("policy_type")
     @classmethod
@@ -801,6 +807,7 @@ class InsurancePolicyUpdateRequest(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=200)
     policy_type: str | None = None
     premium_amount: float | None = Field(default=None, gt=0)
+    policy_currency: str | None = Field(default=None, min_length=3, max_length=3)
     coverage_amount: float | None = Field(default=None, gt=0)
     coverage_goal: float | None = Field(default=None, ge=0)
     premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
@@ -811,6 +818,11 @@ class InsurancePolicyUpdateRequest(BaseModel):
     end_date: str | None = None
     renewal_date: str | None = None
     status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_currency")
+    @classmethod
+    def normalize_policy_currency(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value is not None else None
 
     @field_validator("policy_type")
     @classmethod
@@ -3462,6 +3474,7 @@ def create_insurance_policy(
         "provider": payload.provider,
         "policy_type": payload.policy_type,
         "premium_amount": payload.premium_amount,
+        "policy_currency": payload.policy_currency,
         "coverage_amount": payload.coverage_amount,
         "coverage_goal": payload.coverage_goal if payload.coverage_goal is not None else 0.0,
         "premium_frequency": payload.premium_frequency,
@@ -3479,9 +3492,20 @@ def create_insurance_policy(
 
 
 @app.get("/api/v1/insurance/policies", tags=["insurance"])
-def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_policies = [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]]
-    return {"policies": [_enrich_policy(policy) for policy in owner_policies]}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    policies = []
+    for policy in owner_policies:
+        enriched = _enrich_policy(policy)
+        enriched["display_coverage"] = _display_money(
+            policy.get("coverage_amount", 0), policy.get("policy_currency", "INR"), display_currency
+        )
+        enriched["display_premium"] = _display_money(
+            policy.get("premium_amount", 0), policy.get("policy_currency", "INR"), display_currency
+        )
+        policies.append(enriched)
+    return {"policies": policies, "currency": display_currency}
 
 
 @app.put("/api/v1/insurance/policies/{policy_id}", tags=["insurance"])
@@ -3500,6 +3524,8 @@ def update_insurance_policy(
         policy["policy_type"] = payload.policy_type
     if payload.premium_amount is not None:
         policy["premium_amount"] = payload.premium_amount
+    if payload.policy_currency is not None:
+        policy["policy_currency"] = payload.policy_currency
     if payload.coverage_amount is not None:
         policy["coverage_amount"] = payload.coverage_amount
     if payload.coverage_goal is not None:
@@ -3534,20 +3560,37 @@ def delete_insurance_policy(policy_id: str, user: dict[str, Any] = Depends(_get_
 @app.get("/api/v1/insurance/dashboard", tags=["insurance"])
 def insurance_dashboard(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_policies = _get_user_policies(user["email"])
-    total_coverage = sum(float(policy.get("coverage_amount") or 0.0) for policy in owner_policies)
-    total_premium = sum(float(policy.get("premium_amount") or 0.0) for policy in owner_policies)
-    total_goal = sum(float(policy.get("coverage_goal") or 0.0) for policy in owner_policies)
-    coverage_gap = max(0.0, total_goal - total_coverage)
-    premium_gap = sum(_calculate_policy_gap_metrics(policy)["premium_gap"] for policy in owner_policies)
-    readiness_score = 0 if not owner_policies else min(100, int((total_coverage / max(total_goal, 1.0)) * 100))
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    total_coverage = Decimal("0")
+    total_premium = Decimal("0")
+    total_goal = Decimal("0")
+    warnings: list[str] = []
+    for policy in owner_policies:
+        source_currency = policy.get("policy_currency", "INR")
+        converted_values = [
+            _display_money(policy.get("coverage_amount") or 0, source_currency, display_currency),
+            _display_money(policy.get("premium_amount") or 0, source_currency, display_currency),
+            _display_money(policy.get("coverage_goal") or 0, source_currency, display_currency),
+        ]
+        if any(value["display_amount"] is None for value in converted_values):
+            warnings.extend(value["conversion_warning"] for value in converted_values if value["display_amount"] is None)
+            continue
+        total_coverage += Decimal(converted_values[0]["display_amount"])
+        total_premium += Decimal(converted_values[1]["display_amount"])
+        total_goal += Decimal(converted_values[2]["display_amount"])
+    coverage_gap = max(Decimal("0"), total_goal - total_coverage)
+    premium_gap = max(Decimal("0"), total_goal - total_coverage)
+    readiness_score = 0 if not owner_policies else min(100, int((total_coverage / max(total_goal, Decimal("1"))) * 100))
 
     return {
         "policy_count": len(owner_policies),
-        "total_coverage": round(total_coverage, 2),
-        "total_premium": round(total_premium, 2),
-        "coverage_gap": round(coverage_gap, 2),
-        "premium_gap": round(premium_gap, 2),
+        "total_coverage": float(total_coverage),
+        "total_premium": float(total_premium),
+        "coverage_gap": float(coverage_gap),
+        "premium_gap": float(premium_gap),
         "readiness_score": readiness_score,
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
