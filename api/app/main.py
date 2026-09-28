@@ -3003,6 +3003,68 @@ def _calculate_goal_progress(goal: dict[str, Any], user_email: str) -> dict[str,
     }
 
 
+def _display_money(amount: Any, source_currency: str, display_currency: str) -> dict[str, Any]:
+    try:
+        result = _runtime_currency_service().convert(amount, source_currency, display_currency)
+    except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+        return {
+            "raw_amount": str(amount),
+            "source_currency": source_currency,
+            "display_amount": None,
+            "display_currency": display_currency,
+            "conversion_status": "rate_not_available",
+            "conversion_warning": str(exc),
+        }
+    return {
+        "raw_amount": str(result.raw_amount),
+        "source_currency": result.source_currency,
+        "display_amount": str(result.display_amount),
+        "display_currency": result.display_currency,
+        "conversion_status": result.conversion_status,
+    }
+
+
+def _converted_goal_progress(goal: dict[str, Any], user_email: str, display_currency: str) -> dict[str, Any]:
+    target = _display_money(goal["target_amount"], goal.get("target_currency", "INR"), display_currency)
+    current_amount = Decimal("0")
+    warnings: list[str] = []
+    for investment in _INVESTMENTS:
+        if investment["owner_email"] != user_email or investment.get("goal_id") != goal["id"]:
+            continue
+        converted = _display_money(
+            investment.get("current_asset_value", investment.get("amount_invested", 0)),
+            investment.get("currency", "INR"),
+            display_currency,
+        )
+        if converted["display_amount"] is None:
+            warnings.append(converted["conversion_warning"])
+        else:
+            current_amount += Decimal(converted["display_amount"])
+    target_amount = Decimal(target["display_amount"] or "0")
+    remaining_amount = max(Decimal("0"), target_amount - current_amount)
+    percent_complete = Decimal("0") if target_amount <= 0 else min(Decimal("100"), current_amount / target_amount * Decimal("100"))
+    return {
+        "goal_id": goal["id"],
+        "goal_name": goal["name"],
+        "target": target,
+        "target_amount": float(target_amount),
+        "current": {
+            "display_amount": str(current_amount),
+            "display_currency": display_currency,
+        },
+        "current_amount": float(current_amount),
+        "percent_complete": round(float(percent_complete), 2),
+        "remaining": {
+            "display_amount": str(remaining_amount),
+            "display_currency": display_currency,
+        },
+        "remaining_amount": float(remaining_amount),
+        "funding_gap": float(remaining_amount),
+        "status": goal.get("status", "active"),
+        "warnings": warnings,
+    }
+
+
 def _calculate_coverage_score(user_email: str) -> int:
     policies = _get_user_policies(user_email)
     if not policies:
@@ -3111,14 +3173,23 @@ def create_goal(
 
 
 @app.get("/api/v1/goals", tags=["goals"])
-def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_goals = [
         goal for goal in _GOALS
         if goal["owner_email"] == user["email"]
         and goal.get("status") != "archived"
         and not goal.get("is_default_goal")
     ]
-    return {"goals": owner_goals}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    goals = []
+    for goal in owner_goals:
+        item = dict(goal)
+        item["display_target"] = _display_money(
+            goal["target_amount"], goal.get("target_currency", "INR"), display_currency
+        )
+        item["display_currency"] = display_currency
+        goals.append(item)
+    return {"goals": goals, "currency": display_currency}
 
 
 @app.get("/api/v1/goals/{goal_id}", tags=["goals"])
@@ -3174,7 +3245,7 @@ def update_goal(
 @app.get("/api/v1/goals/{goal_id}/progress", tags=["goals"])
 def goal_progress(goal_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     goal = _get_goal_for_user(goal_id, user["email"])
-    return _calculate_goal_progress(goal, user["email"])
+    return _converted_goal_progress(goal, user["email"], str(user.get("preferred_currency") or "INR").upper())
 
 
 @app.delete("/api/v1/goals/{goal_id}", tags=["goals"])
@@ -3254,20 +3325,43 @@ def create_investment(
 
 
 @app.get("/api/v1/investments", tags=["investments"])
-def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
-    return {"investments": owner_investments}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    investments = []
+    for investment in owner_investments:
+        item = dict(investment)
+        item["display_amount_invested"] = _display_money(
+            investment["amount_invested"], investment.get("currency", "INR"), display_currency
+        )
+        item["display_current_value"] = _display_money(
+            investment["current_asset_value"], investment.get("currency", "INR"), display_currency
+        )
+        investments.append(item)
+    return {"investments": investments, "currency": display_currency}
 
 
 @app.get("/api/v1/investments/summary", tags=["investments"])
-def investment_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+def investment_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
-    total_invested = sum(float(investment["amount_invested"]) for investment in owner_investments)
-    current_value = sum(float(investment["current_asset_value"]) for investment in owner_investments)
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    total_invested = Decimal("0")
+    current_value = Decimal("0")
+    warnings: list[str] = []
+    for investment in owner_investments:
+        invested = _display_money(investment["amount_invested"], investment.get("currency", "INR"), display_currency)
+        current = _display_money(investment["current_asset_value"], investment.get("currency", "INR"), display_currency)
+        if invested["display_amount"] is None or current["display_amount"] is None:
+            warnings.append(invested.get("conversion_warning") or current.get("conversion_warning"))
+            continue
+        total_invested += Decimal(invested["display_amount"])
+        current_value += Decimal(current["display_amount"])
     return {
-        "total_invested": total_invested,
-        "current_value": current_value,
-        "gain_loss": current_value - total_invested,
+        "total_invested": float(total_invested),
+        "current_value": float(current_value),
+        "gain_loss": float(current_value - total_invested),
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
