@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ravApiFetch } from "../../lib/api";
+import { ravApiFetch, type CurrencyOption } from "../../lib/api";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
 
@@ -23,6 +23,9 @@ export default function GovernancePage() {
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
+  const [currencyMessage, setCurrencyMessage] = useState("");
 
   useEffect(() => {
     const loadGovernance = async () => {
@@ -46,6 +49,57 @@ export default function GovernancePage() {
 
     void loadGovernance();
   }, []);
+
+  useEffect(() => {
+    void ravApiFetch<{
+      currencies: Array<CurrencyOption & { usd_per_unit: string }>;
+    }>("/api/v1/admin/currencies")
+      .then((response) => {
+        setCurrencies(response.currencies);
+        setRateDrafts(
+          Object.fromEntries(
+            response.currencies.map((currency) => [
+              currency.currency_code,
+              String(currency.usd_per_unit ?? ""),
+            ]),
+          ),
+        );
+      })
+      .catch((loadError: unknown) => {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load currency management",
+        );
+      });
+  }, []);
+
+  const updateCurrency = async (currency: CurrencyOption) => {
+    setCurrencyMessage("");
+    try {
+      await ravApiFetch(`/api/v1/admin/currencies/${currency.currency_code}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          usd_per_unit: rateDrafts[currency.currency_code],
+          is_active: !Boolean(currency.is_active),
+        }),
+      });
+      setCurrencies((current) =>
+        current.map((item) =>
+          item.currency_code === currency.currency_code
+            ? { ...item, is_active: !Boolean(currency.is_active) }
+            : item,
+        ),
+      );
+      setCurrencyMessage(`${currency.currency_code} updated`);
+    } catch (updateError) {
+      setCurrencyMessage(
+        updateError instanceof Error
+          ? updateError.message
+          : "Currency update failed",
+      );
+    }
+  };
 
   const adminUsers = useMemo(
     () => summary?.users.filter((user) => user.role === "admin") ?? [],
@@ -167,6 +221,50 @@ export default function GovernancePage() {
               ))}
             </ul>
           </aside>
+        </section>
+
+        <section className="panel" style={{ marginTop: 24 }}>
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">CURRENCY CONTROL</p>
+              <h3>Supported currencies and USD rates</h3>
+            </div>
+            {currencyMessage ? (
+              <span className="pill neutral">{currencyMessage}</span>
+            ) : null}
+          </div>
+
+          <div className="governance-list">
+            {currencies.map((currency) => (
+              <div className="governance-item" key={currency.currency_code}>
+                <strong>{currency.currency_code}</strong>
+                <span>{currency.currency_name}</span>
+                <label className="field" style={{ maxWidth: 180 }}>
+                  <span>USD per unit</span>
+                  <input
+                    className="safe-input"
+                    inputMode="decimal"
+                    value={rateDrafts[currency.currency_code] ?? ""}
+                    onChange={(event) =>
+                      setRateDrafts((current) => ({
+                        ...current,
+                        [currency.currency_code]: event.target.value,
+                      }))
+                    }
+                    disabled={currency.currency_code === "USD"}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => void updateCurrency(currency)}
+                  disabled={currency.currency_code === "USD"}
+                >
+                  {Boolean(currency.is_active) ? "Disable" : "Enable"}
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
       </main>
     </RavProtectedLayout>
