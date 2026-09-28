@@ -40,6 +40,7 @@ from app.db import (
     uses_mysql,
 )
 from app.services.auth_service import AuthService
+from app.services.currency_service import CurrencyValidationError, CurrencyService
 
 
 @asynccontextmanager
@@ -70,6 +71,7 @@ app.add_middleware(
 )
 security = HTTPBearer(auto_error=False)
 auth_service = AuthService()
+currency_service = CurrencyService()
 
 
 def _runtime_environment_name() -> str:
@@ -275,6 +277,7 @@ def _ensure_default_goal_for_user(user_email: str) -> dict[str, Any]:
 
 
 _ensure_session_store()
+ensure_currency_tables()
 _hydrate_users_from_database()
 
 
@@ -382,6 +385,15 @@ class UserPreferencesRequest(BaseModel):
     theme: str = Field(default="light")
     currency: str = Field(default="INR")
     email_notifications: bool = True
+
+
+class CurrencyPreferenceRequest(BaseModel):
+    preferred_currency: str = Field(min_length=3, max_length=3)
+
+    @field_validator("preferred_currency")
+    @classmethod
+    def normalize_preferred_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
 
 APPROVED_GOAL_CATEGORIES = tuple(category["slug"] for category in GOAL_CATEGORY_CATALOG)
@@ -2007,6 +2019,80 @@ def terminate_session(
 @app.get("/api/v1/auth/me", tags=["auth"])
 def get_current_profile(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, str]:
     return {"email": user["email"], "role": user["role"]}
+
+
+def _list_currency_rows(*, active_only: bool = True) -> list[dict[str, Any]]:
+    query = "SELECT currency_code, currency_name, symbol, decimal_places, is_active, is_base FROM currency_master"
+    if active_only:
+        query += " WHERE is_active = 1"
+    query += " ORDER BY currency_code"
+    with get_engine().connect() as connection:
+        rows = connection.execute(text(query)).mappings().all()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/v1/currencies", tags=["currency"])
+def list_currencies() -> dict[str, Any]:
+    return {"currencies": _list_currency_rows()}
+
+
+@app.get("/api/v1/currencies/rates", tags=["currency"])
+def list_currency_rates() -> dict[str, Any]:
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT currency_code, base_currency_code, usd_per_unit, effective_at
+                FROM currency_conversion_rates
+                WHERE base_currency_code = 'USD'
+                ORDER BY currency_code
+                """
+            )
+        ).mappings().all()
+    return {
+        "base_currency": "USD",
+        "rates": [
+            {
+                "currency_code": row["currency_code"],
+                "base_currency_code": row["base_currency_code"],
+                "usd_per_unit": str(row["usd_per_unit"]),
+                "effective_at": row["effective_at"],
+            }
+            for row in rows
+        ],
+    }
+
+
+@app.put("/api/v1/profile/currency", tags=["profile"])
+def update_profile_currency(
+    payload: CurrencyPreferenceRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    preferred_currency = payload.preferred_currency
+    try:
+        currency_service.normalize_code(preferred_currency)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    active_codes = {row["currency_code"] for row in _list_currency_rows()}
+    if preferred_currency not in active_codes:
+        raise HTTPException(status_code=422, detail="Currency is unsupported or disabled")
+
+    previous_currency = user.get("preferred_currency", "INR")
+    user["preferred_currency"] = preferred_currency
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"preferred_currency": preferred_currency},
+    )
+    _record_audit(
+        "profile.currency_updated",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="preferred currency updated",
+        before={"preferred_currency": previous_currency},
+        after={"preferred_currency": preferred_currency},
+    )
+    return {"preferred_currency": preferred_currency}
 
 
 @app.put("/api/v1/auth/preferences", tags=["auth"])
