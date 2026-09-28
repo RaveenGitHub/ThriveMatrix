@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
@@ -134,3 +135,56 @@ def test_dashboard_detects_missing_data_without_fabricating_zero() -> None:
     assert body["goal_count"] == 0
     assert body["investment_count"] == 0
     assert body["status"] == "partial"
+
+
+def test_dashboard_converts_mixed_currency_totals_to_user_preference() -> None:
+    email = f"dashboard-currency-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    preference = client.put(
+        "/api/v1/profile/currency",
+        json={"preferred_currency": "AED"},
+        headers=headers,
+    )
+    assert preference.status_code == 200
+
+    goal = client.post(
+        "/api/v1/goals",
+        json={
+            "name": "USD Goal",
+            "category": "emergency_fund",
+            "target_amount": 100,
+            "target_currency": "USD",
+            "target_date": "2027-12-31",
+            "status": "active",
+            "priority": "high",
+        },
+        headers=headers,
+    )
+    assert goal.status_code == 201
+
+    investment = client.post(
+        "/api/v1/investments",
+        json={
+            "name": "EUR Holding",
+            "asset_class": "equity_stocks",
+            "currency": "EUR",
+            "amount_invested": 100,
+            "units": 1,
+            "unit_value": 100,
+            "valuation_source": "manual",
+            "valuation_timestamp": "2026-08-19T10:00:00Z",
+        },
+        headers=headers,
+    )
+    assert investment.status_code == 201
+
+    response = client.get("/api/v1/dashboard/summary", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["currency"] == "AED"
+    assert body["monetary"]["display_currency"] == "AED"
+    assert Decimal(body["monetary"]["totals"]["goal_target"]) > Decimal("100")
+    assert Decimal(body["monetary"]["totals"]["portfolio_value"]) > Decimal("100")

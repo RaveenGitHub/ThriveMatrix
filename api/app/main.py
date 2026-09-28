@@ -40,7 +40,12 @@ from app.db import (
     uses_mysql,
 )
 from app.services.auth_service import AuthService
-from app.services.currency_service import CurrencyValidationError, CurrencyService
+from app.services.currency_service import (
+    CurrencyDefinition,
+    CurrencyRateUnavailableError,
+    CurrencyValidationError,
+    CurrencyService,
+)
 
 
 @asynccontextmanager
@@ -2097,6 +2102,39 @@ def list_currency_rates() -> dict[str, Any]:
     }
 
 
+def _runtime_currency_service() -> CurrencyService:
+    with get_engine().connect() as connection:
+        definitions = connection.execute(
+            text(
+                """
+                SELECT currency_code, currency_name, decimal_places, is_active
+                FROM currency_master
+                """
+            )
+        ).mappings().all()
+        rates = connection.execute(
+            text(
+                """
+                SELECT currency_code, usd_per_unit
+                FROM currency_conversion_rates
+                WHERE base_currency_code = 'USD'
+                """
+            )
+        ).mappings().all()
+    return CurrencyService(
+        definitions=tuple(
+            CurrencyDefinition(
+                code=row["currency_code"],
+                name=row["currency_name"],
+                decimal_places=int(row["decimal_places"]),
+                is_active=bool(row["is_active"]),
+            )
+            for row in definitions
+        ),
+        rates={row["currency_code"]: str(row["usd_per_unit"]) for row in rates},
+    )
+
+
 @app.put("/api/v1/profile/currency", tags=["profile"])
 def update_profile_currency(
     payload: CurrencyPreferenceRequest,
@@ -3553,6 +3591,70 @@ def replay_event_outbox(user: dict[str, Any] = Depends(_get_current_user)) -> di
     }
 
 
+def _dashboard_monetary_summary(
+    user_email: str,
+    display_currency: str,
+    owner_goals: list[dict[str, Any]],
+    owner_investments: list[dict[str, Any]],
+    owner_policies: list[dict[str, Any]],
+) -> dict[str, Any]:
+    service = _runtime_currency_service()
+    totals = {
+        "goal_target": Decimal("0"),
+        "portfolio_value": Decimal("0"),
+        "insurance_coverage": Decimal("0"),
+        "income": Decimal("0"),
+        "expenses": Decimal("0"),
+    }
+    warnings: list[dict[str, str]] = []
+
+    def add_value(total_name: str, amount: Any, source_currency: str, resource: str) -> None:
+        try:
+            result = service.convert(amount, source_currency, display_currency)
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"resource": resource, "message": str(exc)})
+            return
+        totals[total_name] += result.display_amount
+
+    for goal in owner_goals:
+        add_value(
+            "goal_target",
+            goal.get("target_amount", 0),
+            goal.get("target_currency", "INR"),
+            f"goal:{goal.get('id', 'unknown')}",
+        )
+    for investment in owner_investments:
+        add_value(
+            "portfolio_value",
+            investment.get("current_asset_value", 0),
+            investment.get("currency", "INR"),
+            f"investment:{investment.get('id', 'unknown')}",
+        )
+    for policy in owner_policies:
+        add_value(
+            "insurance_coverage",
+            policy.get("coverage_amount", 0),
+            policy.get("policy_currency", "INR"),
+            f"policy:{policy.get('id', 'unknown')}",
+        )
+    for transaction in _TRANSACTIONS:
+        if transaction.get("owner_email") != user_email:
+            continue
+        total_name = "income" if transaction.get("type") == "credit" else "expenses"
+        add_value(
+            total_name,
+            transaction.get("amount", 0),
+            transaction.get("currency", "INR"),
+            f"transaction:{transaction.get('id', 'unknown')}",
+        )
+
+    return {
+        "display_currency": display_currency,
+        "totals": {name: str(value) for name, value in totals.items()},
+        "warnings": warnings,
+    }
+
+
 @app.get("/api/v1/dashboard/summary", tags=["dashboard"])
 def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_goals = [
@@ -3563,7 +3665,14 @@ def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict
     owner_policies = _get_user_policies(user["email"])
 
     status = "ready" if owner_goals or owner_investments or owner_policies else "partial"
-    currency = "INR"
+    currency = str(user.get("preferred_currency") or "INR").upper()
+    monetary = _dashboard_monetary_summary(
+        user["email"],
+        currency,
+        owner_goals,
+        owner_investments,
+        owner_policies,
+    )
     freshness = {
         "version": "dashboard-v1",
         "status": status,
@@ -3594,6 +3703,7 @@ def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict
         "insurance_count": len(owner_policies),
         "coverage_score": _calculate_coverage_score(user["email"]),
         "currency": currency,
+        "monetary": monetary,
         "status": status,
         "freshness": freshness,
         "metrics": metrics,
