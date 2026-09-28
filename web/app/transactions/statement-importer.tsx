@@ -233,32 +233,54 @@ export function StatementImportPanel({
     setStatusText(`Uploading and reading ${file.name}...`);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      const submitFile = async (passwordOverride?: string) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        if (passwordOverride) {
+          formData.append("password", passwordOverride);
+        }
 
-      const uploadResponse = await fetch(
-        `${API_BASE_URL}/api/v1/transactions/upload`,
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        },
-      );
+        const uploadResponse = await fetch(
+          `${API_BASE_URL}/api/v1/transactions/upload`,
+          {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          },
+        );
 
-      const uploadPayload = uploadResponse.headers
-        .get("content-type")
-        ?.includes("application/json")
-        ? await uploadResponse.json().catch(() => null)
-        : null;
+        const uploadPayload = uploadResponse.headers
+          .get("content-type")
+          ?.includes("application/json")
+          ? await uploadResponse.json().catch(() => null)
+          : null;
 
-      if (!uploadResponse.ok) {
-        const message =
-          uploadPayload?.detail ??
-          uploadPayload?.error?.message ??
-          "The uploaded statement is not valid for secure processing.";
-        throw new Error(message);
-      }
+        if (!uploadResponse.ok) {
+          const message =
+            uploadPayload?.detail ??
+            uploadPayload?.error?.message ??
+            "The uploaded statement is not valid for secure processing.";
 
+          if (/password|encrypted/i.test(message)) {
+            const enteredPassword = window.prompt(
+              "This PDF is password protected. Enter the PDF password to continue:",
+              "",
+            );
+            if (!enteredPassword) {
+              throw new Error(
+                "A PDF password is required to process this statement.",
+              );
+            }
+            return submitFile(enteredPassword);
+          }
+
+          throw new Error(message);
+        }
+
+        return uploadPayload;
+      };
+
+      const uploadPayload = await submitFile();
       const serverRows = Array.isArray(uploadPayload?.preview)
         ? uploadPayload.preview.map((row: Record<string, unknown>) => ({
             date: String(row.date ?? ""),

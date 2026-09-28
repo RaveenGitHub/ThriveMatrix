@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import io
 import os
 import secrets
 import socket
@@ -10,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,6 +29,7 @@ from app.db import (
     GOAL_CATEGORY_CATALOG,
     INVESTMENT_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
+    ensure_currency_tables,
     ensure_database_ready,
     ensure_investment_category_seed,
     ensure_migration_bootstrap_tables,
@@ -38,6 +40,12 @@ from app.db import (
     uses_mysql,
 )
 from app.services.auth_service import AuthService
+from app.services.currency_service import (
+    CurrencyDefinition,
+    CurrencyRateUnavailableError,
+    CurrencyValidationError,
+    CurrencyService,
+)
 
 
 @asynccontextmanager
@@ -45,6 +53,7 @@ async def lifespan(_: FastAPI):
     ensure_database_ready()
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
+    ensure_currency_tables()
     ensure_investment_category_seed()
     ensure_transaction_category_seed()
     yield
@@ -67,6 +76,7 @@ app.add_middleware(
 )
 security = HTTPBearer(auto_error=False)
 auth_service = AuthService()
+currency_service = CurrencyService()
 
 
 def _runtime_environment_name() -> str:
@@ -272,6 +282,7 @@ def _ensure_default_goal_for_user(user_email: str) -> dict[str, Any]:
 
 
 _ensure_session_store()
+ensure_currency_tables()
 _hydrate_users_from_database()
 
 
@@ -379,6 +390,49 @@ class UserPreferencesRequest(BaseModel):
     theme: str = Field(default="light")
     currency: str = Field(default="INR")
     email_notifications: bool = True
+
+
+class CurrencyPreferenceRequest(BaseModel):
+    preferred_currency: str = Field(min_length=3, max_length=3)
+
+    @field_validator("preferred_currency")
+    @classmethod
+    def normalize_preferred_currency(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class CurrencyCreateRequest(BaseModel):
+    currency_code: str = Field(min_length=3, max_length=3)
+    currency_name: str = Field(min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=16)
+    decimal_places: int = Field(default=2, ge=0, le=6)
+    is_active: bool = True
+    usd_per_unit: Decimal = Field(gt=0)
+
+    @field_validator("currency_code")
+    @classmethod
+    def normalize_currency_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class CurrencyUpdateRequest(BaseModel):
+    currency_name: str | None = Field(default=None, min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=16)
+    decimal_places: int | None = Field(default=None, ge=0, le=6)
+    is_active: bool | None = None
+    usd_per_unit: Decimal | None = Field(default=None, gt=0)
+
+
+class CurrencyBulkRateRequest(BaseModel):
+    rates: dict[str, Decimal]
+
+    @field_validator("rates")
+    @classmethod
+    def validate_rates(cls, value: dict[str, Decimal]) -> dict[str, Decimal]:
+        normalized: dict[str, Decimal] = {}
+        for code, rate in value.items():
+            normalized[code.strip().upper()] = rate
+        return normalized
 
 
 APPROVED_GOAL_CATEGORIES = tuple(category["slug"] for category in GOAL_CATEGORY_CATALOG)
@@ -547,7 +601,13 @@ class TransactionRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    currency: str = Field(default="INR", min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("category")
     @classmethod
@@ -567,7 +627,13 @@ class TransactionReviewRecord(BaseModel):
     description: str = Field(min_length=1, max_length=200)
     amount: float = Field(gt=0)
     type: str
+    currency: str = Field(default="INR", min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("description")
     @classmethod
@@ -608,7 +674,13 @@ class TransactionUpdateRequest(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=200)
     amount: float | None = Field(default=None, gt=0)
     type: str | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
     category: str | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value is not None else None
 
     @field_validator("description")
     @classmethod
@@ -653,6 +725,7 @@ class InsurancePolicyCreateRequest(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=200)
     policy_type: str
     premium_amount: float = Field(gt=0)
+    policy_currency: str = Field(default="INR", min_length=3, max_length=3)
     coverage_amount: float = Field(gt=0)
     coverage_goal: float | None = Field(default=None, ge=0)
     premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
@@ -663,6 +736,11 @@ class InsurancePolicyCreateRequest(BaseModel):
     end_date: str
     renewal_date: str | None = None
     status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_currency")
+    @classmethod
+    def normalize_policy_currency(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("policy_type")
     @classmethod
@@ -729,6 +807,7 @@ class InsurancePolicyUpdateRequest(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=200)
     policy_type: str | None = None
     premium_amount: float | None = Field(default=None, gt=0)
+    policy_currency: str | None = Field(default=None, min_length=3, max_length=3)
     coverage_amount: float | None = Field(default=None, gt=0)
     coverage_goal: float | None = Field(default=None, ge=0)
     premium_frequency: Literal["monthly", "quarterly", "yearly", "one_time"] | None = None
@@ -739,6 +818,11 @@ class InsurancePolicyUpdateRequest(BaseModel):
     end_date: str | None = None
     renewal_date: str | None = None
     status: Literal["active", "inactive", "expired", "renewal_due", "pending"] | None = None
+
+    @field_validator("policy_currency")
+    @classmethod
+    def normalize_policy_currency(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value is not None else None
 
     @field_validator("policy_type")
     @classmethod
@@ -2006,6 +2090,113 @@ def get_current_profile(user: dict[str, Any] = Depends(_get_current_user)) -> di
     return {"email": user["email"], "role": user["role"]}
 
 
+def _list_currency_rows(*, active_only: bool = True) -> list[dict[str, Any]]:
+    query = "SELECT currency_code, currency_name, symbol, decimal_places, is_active, is_base FROM currency_master"
+    if active_only:
+        query += " WHERE is_active = 1"
+    query += " ORDER BY currency_code"
+    with get_engine().connect() as connection:
+        rows = connection.execute(text(query)).mappings().all()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/v1/currencies", tags=["currency"])
+def list_currencies() -> dict[str, Any]:
+    return {"currencies": _list_currency_rows()}
+
+
+@app.get("/api/v1/currencies/rates", tags=["currency"])
+def list_currency_rates() -> dict[str, Any]:
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT currency_code, base_currency_code, usd_per_unit, effective_at
+                FROM currency_conversion_rates
+                WHERE base_currency_code = 'USD'
+                ORDER BY currency_code
+                """
+            )
+        ).mappings().all()
+    return {
+        "base_currency": "USD",
+        "rates": [
+            {
+                "currency_code": row["currency_code"],
+                "base_currency_code": row["base_currency_code"],
+                "usd_per_unit": str(row["usd_per_unit"]),
+                "effective_at": row["effective_at"],
+            }
+            for row in rows
+        ],
+    }
+
+
+def _runtime_currency_service() -> CurrencyService:
+    with get_engine().connect() as connection:
+        definitions = connection.execute(
+            text(
+                """
+                SELECT currency_code, currency_name, decimal_places, is_active
+                FROM currency_master
+                """
+            )
+        ).mappings().all()
+        rates = connection.execute(
+            text(
+                """
+                SELECT currency_code, usd_per_unit
+                FROM currency_conversion_rates
+                WHERE base_currency_code = 'USD'
+                """
+            )
+        ).mappings().all()
+    return CurrencyService(
+        definitions=tuple(
+            CurrencyDefinition(
+                code=row["currency_code"],
+                name=row["currency_name"],
+                decimal_places=int(row["decimal_places"]),
+                is_active=bool(row["is_active"]),
+            )
+            for row in definitions
+        ),
+        rates={row["currency_code"]: str(row["usd_per_unit"]) for row in rates},
+    )
+
+
+@app.put("/api/v1/profile/currency", tags=["profile"])
+def update_profile_currency(
+    payload: CurrencyPreferenceRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    preferred_currency = payload.preferred_currency
+    try:
+        currency_service.normalize_code(preferred_currency)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    active_codes = {row["currency_code"] for row in _list_currency_rows()}
+    if preferred_currency not in active_codes:
+        raise HTTPException(status_code=422, detail="Currency is unsupported or disabled")
+
+    previous_currency = user.get("preferred_currency", "INR")
+    user["preferred_currency"] = preferred_currency
+    auth_service.user_repository.update_user(
+        user["email"],
+        {"preferred_currency": preferred_currency},
+    )
+    _record_audit(
+        "profile.currency_updated",
+        actor=user["email"],
+        resource=f"user:{user['email']}",
+        detail="preferred currency updated",
+        before={"preferred_currency": previous_currency},
+        after={"preferred_currency": preferred_currency},
+    )
+    return {"preferred_currency": preferred_currency}
+
+
 @app.put("/api/v1/auth/preferences", tags=["auth"])
 def update_user_preferences(
     payload: UserPreferencesRequest,
@@ -2234,6 +2425,213 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
     return {"alerts": alerts}
 
 
+def _admin_currency_rows() -> list[dict[str, Any]]:
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT c.currency_code, c.currency_name, c.symbol, c.decimal_places,
+                       c.is_active, c.is_base, r.usd_per_unit, r.effective_at, r.updated_by
+                FROM currency_master c
+                LEFT JOIN currency_conversion_rates r
+                  ON r.currency_code = c.currency_code AND r.base_currency_code = 'USD'
+                ORDER BY c.currency_code
+                """
+            )
+        ).mappings().all()
+    return [
+        {
+            **dict(row),
+            "usd_per_unit": str(row["usd_per_unit"]) if row["usd_per_unit"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
+@app.get("/api/v1/admin/currencies", tags=["admin", "currency"])
+def admin_list_currencies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.read")
+    return {"currencies": _admin_currency_rows()}
+
+
+@app.post("/api/v1/admin/currencies", tags=["admin", "currency"], status_code=status.HTTP_201_CREATED)
+def admin_create_currency(
+    payload: CurrencyCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.create")
+    code = payload.currency_code
+    try:
+        currency_service.normalize_code(code)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if code == "USD" and payload.usd_per_unit != Decimal("1"):
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+
+    with get_engine().begin() as connection:
+        existing = connection.execute(
+            text("SELECT currency_code FROM currency_master WHERE currency_code = :code"),
+            {"code": code},
+        ).first()
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Currency already exists")
+        connection.execute(
+            text(
+                """
+                INSERT INTO currency_master
+                    (currency_code, currency_name, symbol, decimal_places, is_active, is_base)
+                VALUES (:code, :name, :symbol, :decimal_places, :is_active, :is_base)
+                """
+            ),
+            {
+                "code": code,
+                "name": payload.currency_name.strip(),
+                "symbol": payload.symbol,
+                "decimal_places": payload.decimal_places,
+                "is_active": 1 if payload.is_active else 0,
+                "is_base": 1 if code == "USD" else 0,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO currency_conversion_rates
+                    (currency_code, base_currency_code, usd_per_unit, updated_by)
+                VALUES (:code, 'USD', :rate, :updated_by)
+                """
+            ),
+            {"code": code, "rate": str(payload.usd_per_unit), "updated_by": user["email"]},
+        )
+
+    _record_audit(
+        "currency.created",
+        actor=user["email"],
+        resource=f"currency:{code}",
+        detail="currency created",
+        after=payload.model_dump(mode="json"),
+    )
+    return next(row for row in _admin_currency_rows() if row["currency_code"] == code)
+
+
+@app.put("/api/v1/admin/currencies/rates/bulk", tags=["admin", "currency"])
+def admin_bulk_update_currency_rates(
+    payload: CurrencyBulkRateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.rates.bulk")
+    normalized_rates = {code.strip().upper(): rate for code, rate in payload.rates.items()}
+    if "USD" in normalized_rates and normalized_rates["USD"] != Decimal("1"):
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+    if any(rate <= 0 or not rate.is_finite() for rate in normalized_rates.values()):
+        raise HTTPException(status_code=422, detail="Currency rates must be positive finite decimals")
+
+    with get_engine().begin() as connection:
+        known_codes = {
+            row[0]
+            for row in connection.execute(text("SELECT currency_code FROM currency_master")).all()
+        }
+        unknown_codes = sorted(set(normalized_rates) - known_codes)
+        if unknown_codes:
+            raise HTTPException(status_code=422, detail=f"Unsupported currencies: {', '.join(unknown_codes)}")
+        for code, rate in normalized_rates.items():
+            connection.execute(
+                text(
+                    """
+                    UPDATE currency_conversion_rates
+                    SET usd_per_unit = :rate, effective_at = CURRENT_TIMESTAMP, updated_by = :updated_by,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE currency_code = :code AND base_currency_code = 'USD'
+                    """
+                ),
+                {"code": code, "rate": str(rate), "updated_by": user["email"]},
+            )
+
+    _record_audit(
+        "currency.rates_bulk_updated",
+        actor=user["email"],
+        resource="currency:rates",
+        detail="currency rates bulk updated",
+        after={"rates": {code: str(rate) for code, rate in normalized_rates.items()}},
+    )
+    return {"updated": sorted(normalized_rates), "rates": _admin_currency_rows()}
+
+
+@app.put("/api/v1/admin/currencies/{currency_code}", tags=["admin", "currency"])
+def admin_update_currency(
+    currency_code: str,
+    payload: CurrencyUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.update")
+    try:
+        code = currency_service.normalize_code(currency_code)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    changes = payload.model_dump(exclude_unset=True)
+    if code == "USD" and changes.get("is_active") is False:
+        raise HTTPException(status_code=422, detail="USD cannot be deactivated")
+    if code == "USD" and changes.get("usd_per_unit") not in {None, Decimal("1")}:
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+    if "usd_per_unit" in changes:
+        changes["usd_per_unit"] = str(changes["usd_per_unit"])
+
+    with get_engine().begin() as connection:
+        current = connection.execute(
+            text(
+                """
+                SELECT c.currency_code, c.currency_name, c.symbol, c.decimal_places, c.is_active,
+                       r.usd_per_unit
+                FROM currency_master c
+                LEFT JOIN currency_conversion_rates r
+                  ON r.currency_code = c.currency_code AND r.base_currency_code = 'USD'
+                WHERE c.currency_code = :code
+                """
+            ),
+            {"code": code},
+        ).mappings().first()
+        if current is None:
+            raise HTTPException(status_code=404, detail="Currency not found")
+        currency_changes = {
+            key: value for key, value in changes.items() if key in {"currency_name", "symbol", "decimal_places", "is_active"}
+        }
+        if currency_changes:
+            assignments = ", ".join(f"{key} = :{key}" for key in currency_changes)
+            connection.execute(
+                text(f"UPDATE currency_master SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE currency_code = :code"),
+                {**currency_changes, "code": code},
+            )
+        if "usd_per_unit" in changes:
+            connection.execute(
+                text(
+                    """
+                    UPDATE currency_conversion_rates
+                    SET usd_per_unit = :rate, effective_at = CURRENT_TIMESTAMP, updated_by = :updated_by,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE currency_code = :code AND base_currency_code = 'USD'
+                    """
+                ),
+                {"code": code, "rate": changes["usd_per_unit"], "updated_by": user["email"]},
+            )
+
+    _record_audit(
+        "currency.updated",
+        actor=user["email"],
+        resource=f"currency:{code}",
+        detail="currency metadata or rate updated",
+        before=dict(current),
+        after=changes,
+    )
+    return next(row for row in _admin_currency_rows() if row["currency_code"] == code)
+
+
+@app.get("/api/v1/admin/currencies/audit", tags=["admin", "currency"])
+def admin_currency_audit(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.audit")
+    return {
+        "events": [event for event in _AUDIT_LOGS if str(event.get("event", "")).startswith("currency.")]
+    }
+
+
 @app.get("/api/v1/admin/users", tags=["admin"])
 def list_users(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, object]:
     _require_admin(user, "admin.users")
@@ -2359,7 +2757,7 @@ def _validate_statement_upload(filename: str | None, content_type: str | None, p
     return extension, content_type or "application/octet-stream"
 
 
-def _extract_pdf_text_payload(payload: bytes) -> str:
+def _extract_pdf_text_payload(payload: bytes, password: str | None = None) -> str:
     text = payload.decode("latin-1", errors="ignore")
     if "%PDF" not in text[:1024]:
         raise HTTPException(status_code=400, detail="PDF statement is malformed or not a valid document")
@@ -2367,6 +2765,33 @@ def _extract_pdf_text_payload(payload: bytes) -> str:
     suspicious_tokens = ("javascript", "/launch", "/openaction", "<script", "cmd.exe", "powershell")
     if any(token in text.lower() for token in suspicious_tokens):
         raise HTTPException(status_code=400, detail="Statement PDF contains suspicious executable content")
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(payload), password=password)
+        if reader.is_encrypted:
+            if not password:
+                raise HTTPException(status_code=401, detail="This PDF is password protected. Please enter the PDF password to continue.")
+            decrypt_result = reader.decrypt(password)
+            if decrypt_result == 0:
+                raise HTTPException(status_code=401, detail="The PDF password is incorrect. Please enter the correct password to continue.")
+
+        extracted_parts: list[str] = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            cleaned = re.sub(r"\s+", " ", page_text).strip()
+            if cleaned:
+                extracted_parts.append(cleaned)
+
+        if extracted_parts:
+            return "\n".join(extracted_parts)
+    except HTTPException:
+        raise
+    except ImportError:
+        pass
+    except Exception:
+        pass
 
     extracted_parts: list[str] = []
     for match in re.finditer(r"BT\s*(.*?)\s*ET", text, flags=re.DOTALL | re.IGNORECASE):
@@ -2391,16 +2816,28 @@ def _extract_pdf_text_payload(payload: bytes) -> str:
 
 
 def _parse_statement_preview_from_text(raw_text: str) -> list[dict[str, Any]]:
-    lines: list[str] = []
-    for line in raw_text.splitlines():
-        cleaned = re.sub(r"\s+", " ", line).strip()
-        if cleaned and len(cleaned) > 6:
-            lines.append(cleaned)
+    normalized_text = (raw_text or "").strip()
+    date_pattern = r"(?<!\d)(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})(?!\d)"
+
+    segments: list[str] = []
+    date_matches = list(re.finditer(date_pattern, normalized_text))
+    if date_matches:
+        for index, date_match in enumerate(date_matches):
+            start = date_match.start()
+            end = date_matches[index + 1].start() if index + 1 < len(date_matches) else len(normalized_text)
+            candidate = re.sub(r"\s+", " ", normalized_text[start:end]).strip()
+            if candidate and len(candidate) > 6:
+                segments.append(candidate)
+    else:
+        for line in normalized_text.splitlines():
+            cleaned = re.sub(r"\s+", " ", line).strip()
+            if cleaned and len(cleaned) > 6:
+                segments.append(cleaned)
 
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for line in lines:
-        date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})", line)
+    for line in segments:
+        date_match = re.search(date_pattern, line)
         if not date_match:
             continue
 
@@ -2474,7 +2911,7 @@ def _parse_statement_preview_from_text(raw_text: str) -> list[dict[str, Any]]:
                 try:
                     normalized_date = datetime(year, second_num, first_num).date().isoformat()
                 except ValueError:
-                    continue
+                    normalized_date = f"{year:04d}-{second_num:02d}-{first_num:02d}"
 
         fingerprint = f"{normalized_date}|{description.lower()}|{amount_value:.2f}|{type_value}"
         if fingerprint in seen:
@@ -2575,6 +3012,68 @@ def _calculate_goal_progress(goal: dict[str, Any], user_email: str) -> dict[str,
         "remaining_amount": round(remaining_amount, 2),
         "funding_gap": round(remaining_amount, 2),
         "status": goal.get("status", "active"),
+    }
+
+
+def _display_money(amount: Any, source_currency: str, display_currency: str) -> dict[str, Any]:
+    try:
+        result = _runtime_currency_service().convert(amount, source_currency, display_currency)
+    except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+        return {
+            "raw_amount": str(amount),
+            "source_currency": source_currency,
+            "display_amount": None,
+            "display_currency": display_currency,
+            "conversion_status": "rate_not_available",
+            "conversion_warning": str(exc),
+        }
+    return {
+        "raw_amount": str(result.raw_amount),
+        "source_currency": result.source_currency,
+        "display_amount": str(result.display_amount),
+        "display_currency": result.display_currency,
+        "conversion_status": result.conversion_status,
+    }
+
+
+def _converted_goal_progress(goal: dict[str, Any], user_email: str, display_currency: str) -> dict[str, Any]:
+    target = _display_money(goal["target_amount"], goal.get("target_currency", "INR"), display_currency)
+    current_amount = Decimal("0")
+    warnings: list[str] = []
+    for investment in _INVESTMENTS:
+        if investment["owner_email"] != user_email or investment.get("goal_id") != goal["id"]:
+            continue
+        converted = _display_money(
+            investment.get("current_asset_value", investment.get("amount_invested", 0)),
+            investment.get("currency", "INR"),
+            display_currency,
+        )
+        if converted["display_amount"] is None:
+            warnings.append(converted["conversion_warning"])
+        else:
+            current_amount += Decimal(converted["display_amount"])
+    target_amount = Decimal(target["display_amount"] or "0")
+    remaining_amount = max(Decimal("0"), target_amount - current_amount)
+    percent_complete = Decimal("0") if target_amount <= 0 else min(Decimal("100"), current_amount / target_amount * Decimal("100"))
+    return {
+        "goal_id": goal["id"],
+        "goal_name": goal["name"],
+        "target": target,
+        "target_amount": float(target_amount),
+        "current": {
+            "display_amount": str(current_amount),
+            "display_currency": display_currency,
+        },
+        "current_amount": float(current_amount),
+        "percent_complete": round(float(percent_complete), 2),
+        "remaining": {
+            "display_amount": str(remaining_amount),
+            "display_currency": display_currency,
+        },
+        "remaining_amount": float(remaining_amount),
+        "funding_gap": float(remaining_amount),
+        "status": goal.get("status", "active"),
+        "warnings": warnings,
     }
 
 
@@ -2686,14 +3185,23 @@ def create_goal(
 
 
 @app.get("/api/v1/goals", tags=["goals"])
-def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_goals(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_goals = [
         goal for goal in _GOALS
         if goal["owner_email"] == user["email"]
         and goal.get("status") != "archived"
         and not goal.get("is_default_goal")
     ]
-    return {"goals": owner_goals}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    goals = []
+    for goal in owner_goals:
+        item = dict(goal)
+        item["display_target"] = _display_money(
+            goal["target_amount"], goal.get("target_currency", "INR"), display_currency
+        )
+        item["display_currency"] = display_currency
+        goals.append(item)
+    return {"goals": goals, "currency": display_currency}
 
 
 @app.get("/api/v1/goals/{goal_id}", tags=["goals"])
@@ -2749,7 +3257,7 @@ def update_goal(
 @app.get("/api/v1/goals/{goal_id}/progress", tags=["goals"])
 def goal_progress(goal_id: str, user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     goal = _get_goal_for_user(goal_id, user["email"])
-    return _calculate_goal_progress(goal, user["email"])
+    return _converted_goal_progress(goal, user["email"], str(user.get("preferred_currency") or "INR").upper())
 
 
 @app.delete("/api/v1/goals/{goal_id}", tags=["goals"])
@@ -2829,20 +3337,43 @@ def create_investment(
 
 
 @app.get("/api/v1/investments", tags=["investments"])
-def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_investments(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
-    return {"investments": owner_investments}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    investments = []
+    for investment in owner_investments:
+        item = dict(investment)
+        item["display_amount_invested"] = _display_money(
+            investment["amount_invested"], investment.get("currency", "INR"), display_currency
+        )
+        item["display_current_value"] = _display_money(
+            investment["current_asset_value"], investment.get("currency", "INR"), display_currency
+        )
+        investments.append(item)
+    return {"investments": investments, "currency": display_currency}
 
 
 @app.get("/api/v1/investments/summary", tags=["investments"])
-def investment_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+def investment_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_investments = [investment for investment in _INVESTMENTS if investment["owner_email"] == user["email"]]
-    total_invested = sum(float(investment["amount_invested"]) for investment in owner_investments)
-    current_value = sum(float(investment["current_asset_value"]) for investment in owner_investments)
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    total_invested = Decimal("0")
+    current_value = Decimal("0")
+    warnings: list[str] = []
+    for investment in owner_investments:
+        invested = _display_money(investment["amount_invested"], investment.get("currency", "INR"), display_currency)
+        current = _display_money(investment["current_asset_value"], investment.get("currency", "INR"), display_currency)
+        if invested["display_amount"] is None or current["display_amount"] is None:
+            warnings.append(invested.get("conversion_warning") or current.get("conversion_warning"))
+            continue
+        total_invested += Decimal(invested["display_amount"])
+        current_value += Decimal(current["display_amount"])
     return {
-        "total_invested": total_invested,
-        "current_value": current_value,
-        "gain_loss": current_value - total_invested,
+        "total_invested": float(total_invested),
+        "current_value": float(current_value),
+        "gain_loss": float(current_value - total_invested),
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
@@ -2943,6 +3474,7 @@ def create_insurance_policy(
         "provider": payload.provider,
         "policy_type": payload.policy_type,
         "premium_amount": payload.premium_amount,
+        "policy_currency": payload.policy_currency,
         "coverage_amount": payload.coverage_amount,
         "coverage_goal": payload.coverage_goal if payload.coverage_goal is not None else 0.0,
         "premium_frequency": payload.premium_frequency,
@@ -2960,9 +3492,20 @@ def create_insurance_policy(
 
 
 @app.get("/api/v1/insurance/policies", tags=["insurance"])
-def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_insurance_policies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_policies = [policy for policy in _INSURANCE_POLICIES if policy["owner_email"] == user["email"]]
-    return {"policies": [_enrich_policy(policy) for policy in owner_policies]}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    policies = []
+    for policy in owner_policies:
+        enriched = _enrich_policy(policy)
+        enriched["display_coverage"] = _display_money(
+            policy.get("coverage_amount", 0), policy.get("policy_currency", "INR"), display_currency
+        )
+        enriched["display_premium"] = _display_money(
+            policy.get("premium_amount", 0), policy.get("policy_currency", "INR"), display_currency
+        )
+        policies.append(enriched)
+    return {"policies": policies, "currency": display_currency}
 
 
 @app.put("/api/v1/insurance/policies/{policy_id}", tags=["insurance"])
@@ -2981,6 +3524,8 @@ def update_insurance_policy(
         policy["policy_type"] = payload.policy_type
     if payload.premium_amount is not None:
         policy["premium_amount"] = payload.premium_amount
+    if payload.policy_currency is not None:
+        policy["policy_currency"] = payload.policy_currency
     if payload.coverage_amount is not None:
         policy["coverage_amount"] = payload.coverage_amount
     if payload.coverage_goal is not None:
@@ -3015,20 +3560,37 @@ def delete_insurance_policy(policy_id: str, user: dict[str, Any] = Depends(_get_
 @app.get("/api/v1/insurance/dashboard", tags=["insurance"])
 def insurance_dashboard(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_policies = _get_user_policies(user["email"])
-    total_coverage = sum(float(policy.get("coverage_amount") or 0.0) for policy in owner_policies)
-    total_premium = sum(float(policy.get("premium_amount") or 0.0) for policy in owner_policies)
-    total_goal = sum(float(policy.get("coverage_goal") or 0.0) for policy in owner_policies)
-    coverage_gap = max(0.0, total_goal - total_coverage)
-    premium_gap = sum(_calculate_policy_gap_metrics(policy)["premium_gap"] for policy in owner_policies)
-    readiness_score = 0 if not owner_policies else min(100, int((total_coverage / max(total_goal, 1.0)) * 100))
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    total_coverage = Decimal("0")
+    total_premium = Decimal("0")
+    total_goal = Decimal("0")
+    warnings: list[str] = []
+    for policy in owner_policies:
+        source_currency = policy.get("policy_currency", "INR")
+        converted_values = [
+            _display_money(policy.get("coverage_amount") or 0, source_currency, display_currency),
+            _display_money(policy.get("premium_amount") or 0, source_currency, display_currency),
+            _display_money(policy.get("coverage_goal") or 0, source_currency, display_currency),
+        ]
+        if any(value["display_amount"] is None for value in converted_values):
+            warnings.extend(value["conversion_warning"] for value in converted_values if value["display_amount"] is None)
+            continue
+        total_coverage += Decimal(converted_values[0]["display_amount"])
+        total_premium += Decimal(converted_values[1]["display_amount"])
+        total_goal += Decimal(converted_values[2]["display_amount"])
+    coverage_gap = max(Decimal("0"), total_goal - total_coverage)
+    premium_gap = max(Decimal("0"), total_goal - total_coverage)
+    readiness_score = 0 if not owner_policies else min(100, int((total_coverage / max(total_goal, Decimal("1"))) * 100))
 
     return {
         "policy_count": len(owner_policies),
-        "total_coverage": round(total_coverage, 2),
-        "total_premium": round(total_premium, 2),
-        "coverage_gap": round(coverage_gap, 2),
-        "premium_gap": round(premium_gap, 2),
+        "total_coverage": float(total_coverage),
+        "total_premium": float(total_premium),
+        "coverage_gap": float(coverage_gap),
+        "premium_gap": float(premium_gap),
         "readiness_score": readiness_score,
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
@@ -3184,6 +3746,70 @@ def replay_event_outbox(user: dict[str, Any] = Depends(_get_current_user)) -> di
     }
 
 
+def _dashboard_monetary_summary(
+    user_email: str,
+    display_currency: str,
+    owner_goals: list[dict[str, Any]],
+    owner_investments: list[dict[str, Any]],
+    owner_policies: list[dict[str, Any]],
+) -> dict[str, Any]:
+    service = _runtime_currency_service()
+    totals = {
+        "goal_target": Decimal("0"),
+        "portfolio_value": Decimal("0"),
+        "insurance_coverage": Decimal("0"),
+        "income": Decimal("0"),
+        "expenses": Decimal("0"),
+    }
+    warnings: list[dict[str, str]] = []
+
+    def add_value(total_name: str, amount: Any, source_currency: str, resource: str) -> None:
+        try:
+            result = service.convert(amount, source_currency, display_currency)
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"resource": resource, "message": str(exc)})
+            return
+        totals[total_name] += result.display_amount
+
+    for goal in owner_goals:
+        add_value(
+            "goal_target",
+            goal.get("target_amount", 0),
+            goal.get("target_currency", "INR"),
+            f"goal:{goal.get('id', 'unknown')}",
+        )
+    for investment in owner_investments:
+        add_value(
+            "portfolio_value",
+            investment.get("current_asset_value", 0),
+            investment.get("currency", "INR"),
+            f"investment:{investment.get('id', 'unknown')}",
+        )
+    for policy in owner_policies:
+        add_value(
+            "insurance_coverage",
+            policy.get("coverage_amount", 0),
+            policy.get("policy_currency", "INR"),
+            f"policy:{policy.get('id', 'unknown')}",
+        )
+    for transaction in _TRANSACTIONS:
+        if transaction.get("owner_email") != user_email:
+            continue
+        total_name = "income" if transaction.get("type") == "credit" else "expenses"
+        add_value(
+            total_name,
+            transaction.get("amount", 0),
+            transaction.get("currency", "INR"),
+            f"transaction:{transaction.get('id', 'unknown')}",
+        )
+
+    return {
+        "display_currency": display_currency,
+        "totals": {name: str(value) for name, value in totals.items()},
+        "warnings": warnings,
+    }
+
+
 @app.get("/api/v1/dashboard/summary", tags=["dashboard"])
 def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_goals = [
@@ -3194,7 +3820,14 @@ def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict
     owner_policies = _get_user_policies(user["email"])
 
     status = "ready" if owner_goals or owner_investments or owner_policies else "partial"
-    currency = "INR"
+    currency = str(user.get("preferred_currency") or "INR").upper()
+    monetary = _dashboard_monetary_summary(
+        user["email"],
+        currency,
+        owner_goals,
+        owner_investments,
+        owner_policies,
+    )
     freshness = {
         "version": "dashboard-v1",
         "status": status,
@@ -3225,6 +3858,7 @@ def dashboard_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict
         "insurance_count": len(owner_policies),
         "coverage_score": _calculate_coverage_score(user["email"]),
         "currency": currency,
+        "monetary": monetary,
         "status": status,
         "freshness": freshness,
         "metrics": metrics,
@@ -3618,6 +4252,7 @@ def domain_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[st
 @app.post("/api/v1/transactions/upload", tags=["transactions"], status_code=status.HTTP_201_CREATED)
 async def upload_statement(
     file: UploadFile = File(...),
+    password: str | None = Form(default=None),
     user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     payload = await file.read()
@@ -3651,7 +4286,7 @@ async def upload_statement(
 
     preview_rows: list[dict[str, Any]] = []
     if extension == ".pdf":
-        pdf_text = _extract_pdf_text_payload(payload)
+        pdf_text = _extract_pdf_text_payload(payload, password=password)
         preview_rows = _parse_statement_preview_from_text(pdf_text)
 
     _record_audit(
@@ -3691,10 +4326,11 @@ def review_transactions(
             "description": record.description.strip().lower(),
             "amount": float(record.amount),
             "type": record.type.strip().lower(),
+            "currency": record.currency,
             "category": _resolve_transaction_category(record.category, record.description),
         }
         fingerprint = hashlib.sha256(
-            f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}".encode("utf-8")
+            f"{user['email']}|{payload.source_name}|{normalized['date']}|{normalized['description']}|{normalized['amount']}|{normalized['type']}|{normalized['currency']}".encode("utf-8")
         ).hexdigest()
         if fingerprint in seen:
             continue
@@ -3705,6 +4341,7 @@ def review_transactions(
                 "description": normalized["description"],
                 "amount": normalized["amount"],
                 "type": normalized["type"],
+                "currency": normalized["currency"],
                 "category": normalized["category"],
                 "owner_email": user["email"],
                 "source_name": payload.source_name,
@@ -3737,6 +4374,7 @@ def import_transactions(
             "description": record.description,
             "amount": record.amount,
             "type": record.type,
+            "currency": record.currency,
             "category": category,
             "owner_email": user["email"],
         }
@@ -3790,44 +4428,95 @@ def _resolve_transaction_category(category: str | None, description: str) -> str
 
 
 @app.get("/api/v1/transactions/summary", tags=["transactions"])
-def transaction_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, float]:
+def transaction_summary(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    income_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "credit")
-    expense_total = sum(float(transaction["amount"]) for transaction in owner_transactions if transaction["type"] == "debit")
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    income_total = Decimal("0")
+    expense_total = Decimal("0")
+    warnings: list[dict[str, str]] = []
+    for transaction in owner_transactions:
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            ).display_amount
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"transaction_id": str(transaction.get("id")), "message": str(exc)})
+            continue
+        if transaction["type"] == "credit":
+            income_total += converted
+        else:
+            expense_total += converted
     net_total = income_total - expense_total
-    savings_rate = (net_total / income_total * 100.0) if income_total else 0.0
+    savings_rate = (net_total / income_total * Decimal("100")) if income_total else Decimal("0")
     return {
-        "income_total": income_total,
-        "expense_total": expense_total,
-        "net_total": net_total,
-        "savings_rate": round(savings_rate, 2),
+        "income_total": float(income_total),
+        "expense_total": float(expense_total),
+        "net_total": float(net_total),
+        "savings_rate": round(float(savings_rate), 2),
         "transaction_count": len(owner_transactions),
+        "currency": display_currency,
+        "warnings": warnings,
     }
 
 
 @app.get("/api/v1/transactions/categories", tags=["transactions"])
-def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def transaction_categories(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    bucket: dict[str, float] = {}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    bucket: dict[str, Decimal] = {}
+    warnings: list[dict[str, str]] = []
     for transaction in owner_transactions:
         category = transaction.get("category") or _categorize_transaction(transaction["description"])
-        bucket[category] = bucket.get(category, 0.0) + float(transaction["amount"])
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            ).display_amount
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            warnings.append({"transaction_id": str(transaction.get("id")), "message": str(exc)})
+            continue
+        bucket[category] = bucket.get(category, Decimal("0")) + converted
 
     categories = [
         {
             "category": category,
-            "total": round(total, 2),
+            "total": float(total),
             "count": len([t for t in owner_transactions if (t.get("category") or _categorize_transaction(t["description"])) == category]),
         }
         for category, total in sorted(bucket.items())
     ]
-    return {"categories": categories}
+    return {"categories": categories, "currency": display_currency, "warnings": warnings}
 
 
 @app.get("/api/v1/transactions", tags=["transactions"])
-def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_transactions(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     owner_transactions = [transaction for transaction in _TRANSACTIONS if transaction["owner_email"] == user["email"]]
-    return {"transactions": owner_transactions}
+    display_currency = str(user.get("preferred_currency") or "INR").upper()
+    service = _runtime_currency_service()
+    transactions: list[dict[str, Any]] = []
+    for transaction in owner_transactions:
+        item = dict(transaction)
+        try:
+            converted = service.convert(
+                transaction["amount"],
+                transaction.get("currency", "INR"),
+                display_currency,
+            )
+            item["display_amount"] = float(converted.display_amount)
+            item["display_currency"] = display_currency
+            item["conversion_status"] = converted.conversion_status
+        except (CurrencyRateUnavailableError, CurrencyValidationError) as exc:
+            item["display_amount"] = None
+            item["display_currency"] = display_currency
+            item["conversion_status"] = "rate_not_available"
+            item["conversion_warning"] = str(exc)
+        transactions.append(item)
+    return {"transactions": transactions, "currency": display_currency}
 
 
 @app.put("/api/v1/transactions/{transaction_id}", tags=["transactions"])
@@ -3846,6 +4535,8 @@ def update_transaction(
         transaction["amount"] = payload.amount
     if payload.type is not None:
         transaction["type"] = payload.type
+    if payload.currency is not None:
+        transaction["currency"] = payload.currency
     if payload.category is not None:
         transaction["category"] = payload.category
 

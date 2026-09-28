@@ -1,3 +1,4 @@
+import io
 import uuid
 
 from fastapi.testclient import TestClient
@@ -164,6 +165,38 @@ def test_statement_upload_rejects_unsupported_or_malicious_files() -> None:
     assert malicious_pdf.status_code == 400
 
 
+def test_statement_upload_requires_password_for_encrypted_pdf() -> None:
+    from pypdf import PdfWriter
+
+    email = f"statement-encrypted-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.encrypt("Secret123!")
+
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    pdf_bytes = buffer.getvalue()
+
+    locked = client.post(
+        "/api/v1/transactions/upload",
+        files={"file": ("statement.pdf", pdf_bytes, "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert locked.status_code == 401
+    assert "password" in locked.json()["detail"].lower()
+
+    unlocked = client.post(
+        "/api/v1/transactions/upload",
+        files={"file": ("statement.pdf", pdf_bytes, "application/pdf")},
+        data={"password": "Secret123!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert unlocked.status_code == 201
+    assert unlocked.json()["preview_count"] >= 0
+
+
 def test_statement_preview_parses_dd_mm_yyyy_dates_correctly() -> None:
     rows = _parse_statement_preview_from_text(
         "12/08/2026 SALARY CREDIT 85000.00 CR\n13/08/2026 GROCERIES 3500.00 DR"
@@ -172,6 +205,18 @@ def test_statement_preview_parses_dd_mm_yyyy_dates_correctly() -> None:
     assert len(rows) == 2
     assert rows[0]["date"] == "2026-08-12"
     assert rows[1]["date"] == "2026-08-13"
+
+
+def test_statement_preview_handles_large_statement_batches_without_newlines() -> None:
+    entries = []
+    for i in range(45):
+        entries.append(f"{i + 1:02d}/08/2026 SALARY CREDIT 100{i % 10}.00 CR")
+
+    rows = _parse_statement_preview_from_text(" ".join(entries))
+
+    assert len(rows) == 45
+    assert rows[0]["date"] == "2026-08-01"
+    assert rows[-1]["date"] == "2026-08-45"
 
 
 def test_transaction_review_normalizes_and_deduplicates_import_rows() -> None:
@@ -236,6 +281,56 @@ def test_transaction_summary_and_category_aggregation_are_available() -> None:
     category_payload = categories.json()
     assert any(item["category"] == "Salary" for item in category_payload["categories"])
     assert any(item["category"] == "Misc Expense" for item in category_payload["categories"])
+
+
+def test_transaction_summary_converts_mixed_source_currencies() -> None:
+    email = f"summary-currency-{uuid.uuid4()}@example.com"
+    token = _register_and_login(email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    preference = client.put(
+        "/api/v1/profile/currency",
+        json={"preferred_currency": "AED"},
+        headers=headers,
+    )
+    assert preference.status_code == 200
+
+    imported = client.post(
+        "/api/v1/transactions/import",
+        json={
+            "source_name": "Mixed Currency Bank",
+            "records": [
+                {
+                    "date": "2026-08-01",
+                    "description": "Salary",
+                    "amount": 100,
+                    "type": "credit",
+                    "currency": "USD",
+                },
+                {
+                    "date": "2026-08-02",
+                    "description": "Groceries",
+                    "amount": 100,
+                    "type": "debit",
+                    "currency": "EUR",
+                },
+            ],
+        },
+        headers=headers,
+    )
+    assert imported.status_code == 201
+    assert {item["currency"] for item in imported.json()["transactions"]} == {"USD", "EUR"}
+
+    summary = client.get("/api/v1/transactions/summary", headers=headers)
+    listing = client.get("/api/v1/transactions", headers=headers)
+
+    assert summary.status_code == 200
+    assert summary.json()["currency"] == "AED"
+    assert summary.json()["income_total"] > 100
+    assert summary.json()["expense_total"] > 100
+    assert listing.status_code == 200
+    assert listing.json()["currency"] == "AED"
+    assert all(item["display_currency"] == "AED" for item in listing.json()["transactions"])
 
 
 def test_transaction_update_and_delete_endpoints() -> None:

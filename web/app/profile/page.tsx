@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRavAuth } from "../auth-context";
 import { RavProtectedLayout } from "../protected-layout";
+import {
+  getCurrencies,
+  updatePreferredCurrency,
+  type CurrencyOption,
+} from "../../lib/api";
 
 const preferencesDefaults = {
   reminders: true,
@@ -29,6 +34,33 @@ const accountTiles = [
 export default function ProfilePage() {
   const { isAdmin, logout } = useRavAuth();
   const [preferences, setPreferences] = useState(preferencesDefaults);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [preferredCurrency, setPreferredCurrency] = useState("INR");
+  const [currencyStatus, setCurrencyStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    void getCurrencies()
+      .then((response) => setCurrencies(response.currencies))
+      .catch((error: unknown) => {
+        setCurrencyStatus(
+          error instanceof Error ? error.message : "Unable to load currencies",
+        );
+      });
+  }, []);
+
+  const saveCurrency = async (value: string) => {
+    setPreferredCurrency(value);
+    setCurrencyStatus(null);
+    try {
+      const response = await updatePreferredCurrency(value);
+      setPreferredCurrency(response.preferred_currency);
+      setCurrencyStatus("Display currency updated");
+    } catch (error) {
+      setCurrencyStatus(
+        error instanceof Error ? error.message : "Unable to update currency",
+      );
+    }
+  };
 
   const toggle = (key: keyof typeof preferencesDefaults) => {
     setPreferences((current) => ({ ...current, [key]: !current[key] }));
@@ -216,6 +248,34 @@ export default function ProfilePage() {
                 >
                   {preferences.marketAlerts ? "Turn off" : "Turn on"}
                 </button>
+              </div>
+
+              <div className="goal-item">
+                <div className="goal-topline">
+                  <strong>Display currency</strong>
+                  <span className="pill neutral">{preferredCurrency}</span>
+                </div>
+                <label className="field">
+                  <span>Preferred currency</span>
+                  <select
+                    className="safe-select"
+                    value={preferredCurrency}
+                    onChange={(event) => void saveCurrency(event.target.value)}
+                    disabled={currencies.length === 0}
+                  >
+                    {currencies.map((currency) => (
+                      <option
+                        key={currency.currency_code}
+                        value={currency.currency_code}
+                      >
+                        {currency.currency_code} - {currency.currency_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {currencyStatus ? (
+                  <span className="auth-message">{currencyStatus}</span>
+                ) : null}
               </div>
             </div>
           </aside>

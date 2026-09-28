@@ -7,6 +7,7 @@ tests/test_analytics.py
 tests/test_auth.py
 tests/test_coverage.py
 tests/test_dashboard.py
+tests/test_db_path_resolution.py
 tests/test_domain_summary.py
 tests/test_goals.py
 tests/test_health.py
