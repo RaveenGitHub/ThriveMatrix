@@ -396,6 +396,40 @@ class CurrencyPreferenceRequest(BaseModel):
         return value.strip().upper()
 
 
+class CurrencyCreateRequest(BaseModel):
+    currency_code: str = Field(min_length=3, max_length=3)
+    currency_name: str = Field(min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=16)
+    decimal_places: int = Field(default=2, ge=0, le=6)
+    is_active: bool = True
+    usd_per_unit: Decimal = Field(gt=0)
+
+    @field_validator("currency_code")
+    @classmethod
+    def normalize_currency_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class CurrencyUpdateRequest(BaseModel):
+    currency_name: str | None = Field(default=None, min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=16)
+    decimal_places: int | None = Field(default=None, ge=0, le=6)
+    is_active: bool | None = None
+    usd_per_unit: Decimal | None = Field(default=None, gt=0)
+
+
+class CurrencyBulkRateRequest(BaseModel):
+    rates: dict[str, Decimal]
+
+    @field_validator("rates")
+    @classmethod
+    def validate_rates(cls, value: dict[str, Decimal]) -> dict[str, Decimal]:
+        normalized: dict[str, Decimal] = {}
+        for code, rate in value.items():
+            normalized[code.strip().upper()] = rate
+        return normalized
+
+
 APPROVED_GOAL_CATEGORIES = tuple(category["slug"] for category in GOAL_CATEGORY_CATALOG)
 APPROVED_GOAL_CATEGORY_LABELS = {
     category["slug"]: category["label"] for category in GOAL_CATEGORY_CATALOG
@@ -2321,6 +2355,213 @@ def list_alerts(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, 
             )
 
     return {"alerts": alerts}
+
+
+def _admin_currency_rows() -> list[dict[str, Any]]:
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT c.currency_code, c.currency_name, c.symbol, c.decimal_places,
+                       c.is_active, c.is_base, r.usd_per_unit, r.effective_at, r.updated_by
+                FROM currency_master c
+                LEFT JOIN currency_conversion_rates r
+                  ON r.currency_code = c.currency_code AND r.base_currency_code = 'USD'
+                ORDER BY c.currency_code
+                """
+            )
+        ).mappings().all()
+    return [
+        {
+            **dict(row),
+            "usd_per_unit": str(row["usd_per_unit"]) if row["usd_per_unit"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
+@app.get("/api/v1/admin/currencies", tags=["admin", "currency"])
+def admin_list_currencies(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.read")
+    return {"currencies": _admin_currency_rows()}
+
+
+@app.post("/api/v1/admin/currencies", tags=["admin", "currency"], status_code=status.HTTP_201_CREATED)
+def admin_create_currency(
+    payload: CurrencyCreateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.create")
+    code = payload.currency_code
+    try:
+        currency_service.normalize_code(code)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if code == "USD" and payload.usd_per_unit != Decimal("1"):
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+
+    with get_engine().begin() as connection:
+        existing = connection.execute(
+            text("SELECT currency_code FROM currency_master WHERE currency_code = :code"),
+            {"code": code},
+        ).first()
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Currency already exists")
+        connection.execute(
+            text(
+                """
+                INSERT INTO currency_master
+                    (currency_code, currency_name, symbol, decimal_places, is_active, is_base)
+                VALUES (:code, :name, :symbol, :decimal_places, :is_active, :is_base)
+                """
+            ),
+            {
+                "code": code,
+                "name": payload.currency_name.strip(),
+                "symbol": payload.symbol,
+                "decimal_places": payload.decimal_places,
+                "is_active": 1 if payload.is_active else 0,
+                "is_base": 1 if code == "USD" else 0,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO currency_conversion_rates
+                    (currency_code, base_currency_code, usd_per_unit, updated_by)
+                VALUES (:code, 'USD', :rate, :updated_by)
+                """
+            ),
+            {"code": code, "rate": str(payload.usd_per_unit), "updated_by": user["email"]},
+        )
+
+    _record_audit(
+        "currency.created",
+        actor=user["email"],
+        resource=f"currency:{code}",
+        detail="currency created",
+        after=payload.model_dump(mode="json"),
+    )
+    return next(row for row in _admin_currency_rows() if row["currency_code"] == code)
+
+
+@app.put("/api/v1/admin/currencies/rates/bulk", tags=["admin", "currency"])
+def admin_bulk_update_currency_rates(
+    payload: CurrencyBulkRateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.rates.bulk")
+    normalized_rates = {code.strip().upper(): rate for code, rate in payload.rates.items()}
+    if "USD" in normalized_rates and normalized_rates["USD"] != Decimal("1"):
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+    if any(rate <= 0 or not rate.is_finite() for rate in normalized_rates.values()):
+        raise HTTPException(status_code=422, detail="Currency rates must be positive finite decimals")
+
+    with get_engine().begin() as connection:
+        known_codes = {
+            row[0]
+            for row in connection.execute(text("SELECT currency_code FROM currency_master")).all()
+        }
+        unknown_codes = sorted(set(normalized_rates) - known_codes)
+        if unknown_codes:
+            raise HTTPException(status_code=422, detail=f"Unsupported currencies: {', '.join(unknown_codes)}")
+        for code, rate in normalized_rates.items():
+            connection.execute(
+                text(
+                    """
+                    UPDATE currency_conversion_rates
+                    SET usd_per_unit = :rate, effective_at = CURRENT_TIMESTAMP, updated_by = :updated_by,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE currency_code = :code AND base_currency_code = 'USD'
+                    """
+                ),
+                {"code": code, "rate": str(rate), "updated_by": user["email"]},
+            )
+
+    _record_audit(
+        "currency.rates_bulk_updated",
+        actor=user["email"],
+        resource="currency:rates",
+        detail="currency rates bulk updated",
+        after={"rates": {code: str(rate) for code, rate in normalized_rates.items()}},
+    )
+    return {"updated": sorted(normalized_rates), "rates": _admin_currency_rows()}
+
+
+@app.put("/api/v1/admin/currencies/{currency_code}", tags=["admin", "currency"])
+def admin_update_currency(
+    currency_code: str,
+    payload: CurrencyUpdateRequest,
+    user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.update")
+    try:
+        code = currency_service.normalize_code(currency_code)
+    except CurrencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    changes = payload.model_dump(exclude_unset=True)
+    if code == "USD" and changes.get("is_active") is False:
+        raise HTTPException(status_code=422, detail="USD cannot be deactivated")
+    if code == "USD" and changes.get("usd_per_unit") not in {None, Decimal("1")}:
+        raise HTTPException(status_code=422, detail="USD must have a rate of 1")
+    if "usd_per_unit" in changes:
+        changes["usd_per_unit"] = str(changes["usd_per_unit"])
+
+    with get_engine().begin() as connection:
+        current = connection.execute(
+            text(
+                """
+                SELECT c.currency_code, c.currency_name, c.symbol, c.decimal_places, c.is_active,
+                       r.usd_per_unit
+                FROM currency_master c
+                LEFT JOIN currency_conversion_rates r
+                  ON r.currency_code = c.currency_code AND r.base_currency_code = 'USD'
+                WHERE c.currency_code = :code
+                """
+            ),
+            {"code": code},
+        ).mappings().first()
+        if current is None:
+            raise HTTPException(status_code=404, detail="Currency not found")
+        currency_changes = {
+            key: value for key, value in changes.items() if key in {"currency_name", "symbol", "decimal_places", "is_active"}
+        }
+        if currency_changes:
+            assignments = ", ".join(f"{key} = :{key}" for key in currency_changes)
+            connection.execute(
+                text(f"UPDATE currency_master SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE currency_code = :code"),
+                {**currency_changes, "code": code},
+            )
+        if "usd_per_unit" in changes:
+            connection.execute(
+                text(
+                    """
+                    UPDATE currency_conversion_rates
+                    SET usd_per_unit = :rate, effective_at = CURRENT_TIMESTAMP, updated_by = :updated_by,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE currency_code = :code AND base_currency_code = 'USD'
+                    """
+                ),
+                {"code": code, "rate": changes["usd_per_unit"], "updated_by": user["email"]},
+            )
+
+    _record_audit(
+        "currency.updated",
+        actor=user["email"],
+        resource=f"currency:{code}",
+        detail="currency metadata or rate updated",
+        before=dict(current),
+        after=changes,
+    )
+    return next(row for row in _admin_currency_rows() if row["currency_code"] == code)
+
+
+@app.get("/api/v1/admin/currencies/audit", tags=["admin", "currency"])
+def admin_currency_audit(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    _require_admin(user, "admin.currencies.audit")
+    return {
+        "events": [event for event in _AUDIT_LOGS if str(event.get("event", "")).startswith("currency.")]
+    }
 
 
 @app.get("/api/v1/admin/users", tags=["admin"])
