@@ -54,3 +54,26 @@ export async function ravApiFetch<T>(
 export const apiFetch = ravApiFetch;
 
 export { ravApiFetch as apiRequest };
+
+export type CurrencyOption = {
+  currency_code: string;
+  currency_name: string;
+  symbol?: string | null;
+  decimal_places: number;
+  is_active: boolean | number;
+  is_base: boolean | number;
+};
+
+export async function getCurrencies() {
+  return ravApiFetch<{ currencies: CurrencyOption[] }>("/api/v1/currencies");
+}
+
+export async function updatePreferredCurrency(preferred_currency: string) {
+  return ravApiFetch<{ preferred_currency: string }>(
+    "/api/v1/profile/currency",
+    {
+      method: "PUT",
+      body: JSON.stringify({ preferred_currency }),
+    },
+  );
+}
