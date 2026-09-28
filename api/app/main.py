@@ -29,6 +29,7 @@ from app.db import (
     GOAL_CATEGORY_CATALOG,
     INVESTMENT_CATEGORY_CATALOG,
     ensure_auth_sessions_table,
+    ensure_currency_tables,
     ensure_database_ready,
     ensure_investment_category_seed,
     ensure_migration_bootstrap_tables,
@@ -46,6 +47,7 @@ async def lifespan(_: FastAPI):
     ensure_database_ready()
     ensure_auth_sessions_table()
     ensure_migration_bootstrap_tables()
+    ensure_currency_tables()
     ensure_investment_category_seed()
     ensure_transaction_category_seed()
     yield

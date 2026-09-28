@@ -7,6 +7,8 @@ from sqlalchemy import create_engine, exc, text
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.engine.url import make_url
 
+from app.services.currency_service import DEFAULT_USD_PER_UNIT_RATES, SUPPORTED_CURRENCIES
+
 GOAL_CATEGORY_CATALOG: list[dict[str, str | int]] = [
     {"slug": "emergency_fund", "label": "Emergency Fund", "sort_order": 1},
     {"slug": "home_purchase", "label": "Home Purchase", "sort_order": 2},
@@ -510,6 +512,91 @@ def ensure_transaction_category_seed() -> None:
                         "sort_order": category["sort_order"],
                     },
                 )
+
+
+def ensure_currency_tables() -> None:
+    engine = get_engine()
+    if uses_mysql():
+        currency_ddl = """
+            CREATE TABLE IF NOT EXISTS currency_master (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                currency_code CHAR(3) NOT NULL UNIQUE,
+                currency_name VARCHAR(120) NOT NULL,
+                symbol VARCHAR(16) NULL,
+                decimal_places SMALLINT NOT NULL DEFAULT 2,
+                is_active TINYINT NOT NULL DEFAULT 1,
+                is_base TINYINT NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        rate_ddl = """
+            CREATE TABLE IF NOT EXISTS currency_conversion_rates (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                currency_code CHAR(3) NOT NULL,
+                base_currency_code CHAR(3) NOT NULL DEFAULT 'USD',
+                usd_per_unit DECIMAL(24,12) NOT NULL,
+                effective_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_currency_current_rate (currency_code, base_currency_code),
+                CONSTRAINT fk_currency_rate_currency FOREIGN KEY (currency_code) REFERENCES currency_master(currency_code)
+            )
+        """
+        insert_sql = "INSERT IGNORE INTO currency_master (currency_code, currency_name, decimal_places, is_active, is_base) VALUES (:code, :name, :decimal_places, 1, :is_base)"
+        rate_insert_sql = "INSERT IGNORE INTO currency_conversion_rates (currency_code, base_currency_code, usd_per_unit) VALUES (:code, 'USD', :rate)"
+    else:
+        currency_ddl = """
+            CREATE TABLE IF NOT EXISTS currency_master (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                currency_code TEXT NOT NULL UNIQUE,
+                currency_name TEXT NOT NULL,
+                symbol TEXT NULL,
+                decimal_places INTEGER NOT NULL DEFAULT 2,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                is_base INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        rate_ddl = """
+            CREATE TABLE IF NOT EXISTS currency_conversion_rates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                currency_code TEXT NOT NULL,
+                base_currency_code TEXT NOT NULL DEFAULT 'USD',
+                usd_per_unit NUMERIC NOT NULL,
+                effective_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by TEXT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (currency_code, base_currency_code),
+                FOREIGN KEY (currency_code) REFERENCES currency_master(currency_code)
+            )
+        """
+        insert_sql = "INSERT OR IGNORE INTO currency_master (currency_code, currency_name, decimal_places, is_active, is_base) VALUES (:code, :name, :decimal_places, 1, :is_base)"
+        rate_insert_sql = "INSERT OR IGNORE INTO currency_conversion_rates (currency_code, base_currency_code, usd_per_unit) VALUES (:code, 'USD', :rate)"
+
+    with engine.begin() as connection:
+        connection.execute(text(currency_ddl))
+        connection.execute(text(rate_ddl))
+        for definition in SUPPORTED_CURRENCIES:
+            connection.execute(
+                text(insert_sql),
+                {
+                    "code": definition.code,
+                    "name": definition.name,
+                    "decimal_places": definition.decimal_places,
+                    "is_base": 1 if definition.code == "USD" else 0,
+                },
+            )
+            connection.execute(
+                text(rate_insert_sql),
+                {
+                    "code": definition.code,
+                    "rate": str(DEFAULT_USD_PER_UNIT_RATES[definition.code]),
+                },
+            )
 
 
 def ensure_migration_bootstrap_tables() -> None:
