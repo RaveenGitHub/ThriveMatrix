@@ -13,6 +13,7 @@ dependencies = [
   "pymysql>=1.1,<2",
   "sqlalchemy>=2.0,<3",
   "python-multipart>=0.0.20",
+  "pypdf>=4.3,<6",
 ]
 
 [project.optional-dependencies]
