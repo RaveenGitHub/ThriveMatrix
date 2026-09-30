@@ -187,6 +187,42 @@ export default function TransactionsPage() {
     setError("");
   };
 
+  const updateStatementRow = (
+    index: number,
+    updates: Partial<ExtractedStatementRow>,
+  ) => {
+    setStatementRows((currentRows) =>
+      currentRows.map((row, rowIndex) => {
+        if (rowIndex !== index) {
+          return row;
+        }
+
+        const nextRow = {
+          ...row,
+          ...updates,
+        };
+
+        const nextAmount = Number(nextRow.amount) || 0;
+        const nextType = nextRow.type === "credit" ? "credit" : "debit";
+
+        return {
+          ...nextRow,
+          amount: nextAmount,
+          type: nextType,
+          category: nextRow.category || "Misc Expense",
+          credit: nextType === "credit" ? nextAmount : 0,
+          debit: nextType === "debit" ? nextAmount : 0,
+        };
+      }),
+    );
+  };
+
+  const removeStatementRow = (index: number) => {
+    setStatementRows((currentRows) =>
+      currentRows.filter((_, rowIndex) => rowIndex !== index),
+    );
+  };
+
   const handleConfirmStatement = async () => {
     if (statementRows.length === 0) {
       return;
@@ -532,7 +568,16 @@ export default function TransactionsPage() {
                             borderTop: "1px solid #e4e7ec",
                           }}
                         >
-                          {row.date}
+                          <input
+                            type="date"
+                            value={row.date}
+                            onChange={(event) =>
+                              updateStatementRow(index, {
+                                date: event.target.value,
+                              })
+                            }
+                            style={{ width: "100%", minWidth: 120 }}
+                          />
                         </td>
                         <td
                           style={{
@@ -540,7 +585,15 @@ export default function TransactionsPage() {
                             borderTop: "1px solid #e4e7ec",
                           }}
                         >
-                          {row.description}
+                          <input
+                            value={row.description}
+                            onChange={(event) =>
+                              updateStatementRow(index, {
+                                description: event.target.value,
+                              })
+                            }
+                            style={{ width: "100%", minWidth: 180 }}
+                          />
                         </td>
                         <td
                           style={{
@@ -549,9 +602,18 @@ export default function TransactionsPage() {
                             textAlign: "right",
                           }}
                         >
-                          {row.type === "credit"
-                            ? formatMoney(row.amount)
-                            : "—"}
+                          <select
+                            value={row.type}
+                            onChange={(event) =>
+                              updateStatementRow(index, {
+                                type: event.target.value as "credit" | "debit",
+                              })
+                            }
+                            style={{ width: "100%", minWidth: 100 }}
+                          >
+                            <option value="credit">Credit</option>
+                            <option value="debit">Debit</option>
+                          </select>
                         </td>
                         <td
                           style={{
@@ -560,7 +622,17 @@ export default function TransactionsPage() {
                             textAlign: "right",
                           }}
                         >
-                          {row.type === "debit" ? formatMoney(row.amount) : "—"}
+                          <input
+                            type="number"
+                            min="0"
+                            value={row.amount}
+                            onChange={(event) =>
+                              updateStatementRow(index, {
+                                amount: Number(event.target.value || 0),
+                              })
+                            }
+                            style={{ width: "100%", minWidth: 100 }}
+                          />
                         </td>
                         <td
                           style={{
@@ -577,7 +649,37 @@ export default function TransactionsPage() {
                             borderTop: "1px solid #e4e7ec",
                           }}
                         >
-                          {row.currency}
+                          <select
+                            value={row.category ?? "Misc Expense"}
+                            onChange={(event) =>
+                              updateStatementRow(index, {
+                                category: event.target.value,
+                              })
+                            }
+                            style={{ width: "100%", minWidth: 140 }}
+                          >
+                            {transactionCategoryOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 8px",
+                            borderTop: "1px solid #e4e7ec",
+                            textAlign: "center",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="ghost-btn"
+                            onClick={() => removeStatementRow(index)}
+                            aria-label={`Remove row ${index + 1}`}
+                          >
+                            Remove
+                          </button>
                         </td>
                       </tr>
                     ))}
