@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ravApiFetch } from "../lib/api";
+import { API_BASE_URL, ravApiFetch } from "../lib/api";
 
 type RavSessionStatus = {
   status: string;
@@ -32,6 +32,10 @@ type RavAuthContextValue = {
 };
 
 const RavAuthContext = createContext<RavAuthContextValue | null>(null);
+
+function getTerminateSessionUrl() {
+  return new URL("/api/v1/auth/session/terminate", API_BASE_URL).toString();
+}
 
 function clearClientSessionState() {
   if (typeof document === "undefined") {
@@ -89,7 +93,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
           typeof navigator.sendBeacon === "function"
         ) {
           navigator.sendBeacon(
-            "/api/v1/auth/session/terminate",
+            getTerminateSessionUrl(),
             new Blob([], {
               type: "application/json",
             }),
@@ -190,7 +194,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
         typeof navigator.sendBeacon === "function"
       ) {
         navigator.sendBeacon(
-          "/api/v1/auth/session/terminate",
+          getTerminateSessionUrl(),
           new Blob([], {
             type: "application/json",
           }),
@@ -205,7 +209,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
         typeof navigator.sendBeacon === "function"
       ) {
         navigator.sendBeacon(
-          "/api/v1/auth/session/terminate",
+          getTerminateSessionUrl(),
           new Blob([], {
             type: "application/json",
           }),
@@ -221,7 +225,7 @@ export function RavAuthProvider({ children }: { children: React.ReactNode }) {
           typeof navigator.sendBeacon === "function"
         ) {
           navigator.sendBeacon(
-            "/api/v1/auth/session/terminate",
+            getTerminateSessionUrl(),
             new Blob([], {
               type: "application/json",
             }),
